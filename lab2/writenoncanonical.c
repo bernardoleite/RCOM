@@ -15,8 +15,8 @@
 #define FALSE 0
 #define TRUE 1
 
-#define NUMBER_TIMEOUTS 3;
-#define TIMEOUT 3;
+#define NUMBER_TIMEOUTS 3
+#define TIMEOUT 3
 
 
 #define FLAG 0x7e
@@ -25,27 +25,30 @@
 #define CUA 0x07 
 unsigned char set[5];
 
-set[0] = FLAG;
-set[1] = A;
-set[2] = CSET;
-set[3] = set[1]^set[2];
-set[4] = FLAG;
+
 
 //int new = write(fd, set, 5);
 
 static int set_index;
-
+int fd, conta = 1;
 void atende()                   // atende alarme
 {
 
 	write(fd, set, 5);
 	set_index=0;
+	conta++;
 
 }
 
 
 int main(int argc, char** argv)
 {
+
+set[0] = FLAG;
+set[1] = A;
+set[2] = CSET;
+set[3] = set[1]^set[2];
+set[4] = FLAG;
     int c, res;
     struct termios oldtio,newtio;
     char buf[255];
@@ -115,76 +118,78 @@ int main(int argc, char** argv)
 	int ncar = strnlen(buf);
     res = write(fd,buf,ncar+1);*/
 
-	char set = '1';
-	buf[0] = '1';
-	buf[1] = '\0';
 	(void) signal(SIGALRM, atende);  // instala  rotina que atende interrupcao
 
-	char ua = '0';
 
 
-	unsigned char ui;
+	unsigned char ua;
 	
 
 	write(fd, set, 5);	
 
 	enum State{START, FLAG_RCV, A_RCV, C_RCV, BCC_RCV, STOP};
-	State  state;
+	enum State state;
 	state = START;
-	bool quit = false;
+	int quit = 0;
 	while(conta < 3){
 			
 		set_index = 0;
 		alarm(3);
-		while(!quit){
-			read(fd, &ui, 1);
+		while(state != STOP){
+			printf("STATE: %d\n",state);
+			read(fd, &ua, 1);
+			printf("%.2x\n",ua);
 			switch(state) {
 				case START:
-					if(ui == FLAG)	
+					if(ua == FLAG)	
 						state = FLAG_RCV;	
 					break;
 				case FLAG_RCV:
-					if(ui == A)
+					if(ua == A)
 						state = A_RCV;
-					else if (ui == FLAG)
+					else if (ua == FLAG)
 						state = FLAG_RCV;
 					else
 						state = START;
 					break;
 				case A_RCV:
-					if(ui == C)
+					if(ua == CUA)
 						state = C_RCV;
 
-					else if( ui == FLAG)
+					else if( ua == FLAG)
 				  		state = FLAG_RCV;
 					else
 						state = START;
 					break;
 				case C_RCV:
-					if (ui == A^CUA)
+					if (ua == A^CUA)
 						state = BCC_RCV;
-					else if ( ui == FLAG)
+					else if ( ua == FLAG)
 						state = FLAG_RCV;
 					else
 						state = START;
 					break;
 				case BCC_RCV:
-
-					if (ui == FLAG)
+					printf("ua:%x\n",ua);
+					printf("flag:%x\n",FLAG);
+					if (ua == FLAG) {
+						printf("IF\n");					
 						state = STOP;
+					}
 					else
 						state = START;
 					break;
 				case STOP:
-					quit = true;
 					break;
 
 			}
+
 			//maquina estados ua		
 		}
 		alarm(0);
-		
-		
+
+		if(state == STOP)
+			break;
 		
 
 
