@@ -15,19 +15,32 @@
 #define FALSE 0
 #define TRUE 1
 
-volatile int STOP=FALSE;
+#define NUMBER_TIMEOUTS 3;
+#define TIMEOUT 3;
 
-int flag=1, conta=1;
-int flag1=0;
-int fd;
+
+#define FLAG 0x7e
+#define A 0x03
+#define CSET 0x03
+#define CUA 0x07 
+unsigned char set[5];
+
+set[0] = FLAG;
+set[1] = A;
+set[2] = CSET;
+set[3] = set[1]^set[2];
+set[4] = FLAG;
+
+//int new = write(fd, set, 5);
+
+static int set_index;
 
 void atende()                   // atende alarme
 {
-	printf("alarme # %d\n", conta);
-	flag=1;
-	conta++;
-	flag1=1;
-   	close(fd);
+
+	write(fd, set, 5);
+	set_index=0;
+
 }
 
 
@@ -68,14 +81,14 @@ int main(int argc, char** argv)
     /* set input mode (non-canonical, no echo,...) */
     newtio.c_lflag = 0;
 
-    newtio.c_cc[VTIME]    = 0;   /* inter-character timer unused */
-    newtio.c_cc[VMIN]     = 4;   /* blocking read until 5 chars received */
+    newtio.c_cc[VTIME]    = NUMBER_TIMEOUTS * TIMEOUT;   /* inter-character timer unused */
+    newtio.c_cc[VMIN]     = 1;   /* blocking read until 5 chars received */
 
 
 
   /* 
     VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a 
-    leitura do(s) próximo(s) caracter(es)
+    leitura do(s) prÃ³ximo(s) caracter(es)
   */
 
 
@@ -100,7 +113,6 @@ int main(int argc, char** argv)
     
 	/*gets(buf);
 	int ncar = strnlen(buf);
-
     res = write(fd,buf,ncar+1);*/
 
 	char set = '1';
@@ -109,27 +121,71 @@ int main(int argc, char** argv)
 	(void) signal(SIGALRM, atende);  // instala  rotina que atende interrupcao
 
 	char ua = '0';
-	while(conta < 4){
+
+
+	unsigned char ui;
+	
+
+	write(fd, set, 5);	
+
+	enum State{START, FLAG_RCV, A_RCV, C_RCV, BCC_RCV, STOP};
+	State  state;
+	state = START;
+	bool quit = false;
+	while(conta < 3){
 			
-		write(fd, buf, strnlen(buf)+1);
+		set_index = 0;
+		alarm(3);
+		while(!quit){
+			read(fd, &ui, 1);
+			switch(state) {
+				case START:
+					if(ui == FLAG)	
+						state = FLAG_RCV;	
+					break;
+				case FLAG_RCV:
+					if(ui == A)
+						state = A_RCV;
+					else if (ui == FLAG)
+						state = FLAG_RCV;
+					else
+						state = START;
+					break;
+				case A_RCV:
+					if(ui == C)
+						state = C_RCV;
 
-		printf("Fim do sleep\n");	
-   		if(flag){
-    		alarm(3);                 // activa alarme de 3s
-			printf("%d\n",conta);
-   			flag=0;
-   		}
+					else if( ui == FLAG)
+				  		state = FLAG_RCV;
+					else
+						state = START;
+					break;
+				case C_RCV:
+					if (ui == A^CUA)
+						state = BCC_RCV;
+					else if ( ui == FLAG)
+						state = FLAG_RCV;
+					else
+						state = START;
+					break;
+				case BCC_RCV:
 
-		read(fd, &ua, 1);
-		
-		if(flag1==1)
-			fd = open(argv[1], O_RDWR | O_NOCTTY );
-		flag1=0;
-		if(ua == '1'){
-			alarm(0);
-			printf("UA received\n");
-			return 0;
+					if (ui == FLAG)
+						state = STOP;
+					else
+						state = START;
+					break;
+				case STOP:
+					quit = true;
+					break;
+
+			}
+			//maquina estados ua		
 		}
+		alarm(0);
+		
+		
+		
 
 
 	}
@@ -138,8 +194,8 @@ printf("Vou terminar.\n");
 
 
   /* 
-    O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar 
-    o indicado no guião 
+    O ciclo FOR e as instruÃ§Ãµes seguintes devem ser alterados de modo a respeitar 
+    o indicado no guiÃ£o 
   */
 
 
