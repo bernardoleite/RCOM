@@ -32,64 +32,63 @@ enum State state = START;
 
 int fd, conta = 1, flag = 1;
 
-int maquinaEstados(unsigned char ua, int state, char buf[])
+void maquinaEstados(unsigned char ua, char buf[])
 {
-printf("STATE: %d\n",state);
-				switch(state) {
-					case START:
-						if(ua == FLAG)	{
-							buf[state] = ua;
-							state = FLAG_RCV;	
-						}
-						break;
-					case FLAG_RCV:
-						if(ua == A)
-							{
-							buf[state] = ua;
-							state = A_RCV;	
-						}
-						else if (ua == FLAG)
-							state = FLAG_RCV;
-						else
-							state = START;
-						break;
-					case A_RCV:
-						if(ua == CUA)
-							{
-							buf[state] = ua;
-							state = C_RCV;	
-						}
+	printf("STATE: %d\n",state);
+	switch(state) {
+		case START:
+			if(ua == FLAG)	{
+				buf[state] = ua;
+				state = FLAG_RCV;	
+			}
+			break;
+		case FLAG_RCV:
+			if(ua == A)
+				{
+				buf[state] = ua;
+				state = A_RCV;	
+			}
+			else if (ua == FLAG)
+				state = FLAG_RCV;
+			else
+				state = START;
+			break;
+		case A_RCV:
+			if(ua == CUA)
+				{
+				buf[state] = ua;
+				state = C_RCV;	
+			}
 
-						else if( ua == FLAG)
-					  		state = FLAG_RCV;
-						else
-							state = START;
-						break;
-					case C_RCV:
-						if (ua == buf[1]^buf[2])
-							{
-							buf[state] = ua;
-							state = BCC_RCV;	
-						}
-						else if ( ua == FLAG)
-							state = FLAG_RCV;
-						else
-							state = START;
-						break;
-					case BCC_RCV:
-						if (ua == FLAG)
-							{
-							buf[state] = ua;
-							state = STOP;	
-							}
-						else
-							state = START;
-						break;
-					case STOP:
-						break;
-
+			else if( ua == FLAG)
+		  		state = FLAG_RCV;
+			else
+				state = START;
+			break;
+		case C_RCV:
+			if (ua == buf[1]^buf[2])
+				{
+				buf[state] = ua;
+				state = BCC_RCV;	
+			}
+			else if ( ua == FLAG)
+				state = FLAG_RCV;
+			else
+				state = START;
+			break;
+		case BCC_RCV:
+			if (ua == FLAG)
+				{
+				buf[state] = ua;
+				state = STOP;	
 				}
-				return state;
+			else
+				state = START;
+			break;
+		case STOP:
+			break;
+
+	}
 
 }
 void atende()                   // atende alarme
@@ -115,6 +114,35 @@ write (*fd, set, 5);
 
 }
 
+void llopen(int fd) {
+		
+	unsigned char ua;
+
+	char tmp[5];
+
+	while(conta < 4) {			
+
+		if (flag){
+			alarm(3);
+			printf("Envia set\n");
+			sendSet(&fd);
+			flag = 0;
+			tcflush(fd,TCIFLUSH);
+			state = START;
+			while ( state !=STOP && !flag){
+				int res = read(fd, &ua, 1);
+				if(res>0)
+					maquinaEstados(ua, tmp);
+				if(tmp[3] != tmp[1]^tmp[2])
+					continue;			
+			}
+			printf("STATE END: %d\n",state);
+			if(state == STOP)
+				break;
+		}
+	}
+
+}
 
 int main(int argc, char** argv)
 {
@@ -179,42 +207,12 @@ int main(int argc, char** argv)
 
 	(void) signal(SIGALRM, atende);  // instala  rotina que atende interrupcao
 
-	unsigned char ua;
 
-	char tmp[5];
 
-	while(conta < 4) {			
-
-		if (flag){
-			alarm(3);
-			printf("Envia set\n");
-			sendSet(&fd);
-			flag = 0;
-			tcflush(fd,TCIFLUSH);
-			state = START;
-			while ( state !=STOP && !flag){
-				int res = read(fd, &ua, 1);
-				if(res>0)
-					state = maquinaEstados(ua, state, tmp);
-				if(tmp[3] != tmp[1]^tmp[2])
-					continue;			
-			}
-			printf("STATE END: %d\n",state);
-			if(state == STOP)
-				break;
-		}
-
+	llopen(fd);
 
 	
-		/*alarm(0);
-
-		if(state == STOP && flag == 1)
-			break;*/
-	}
-
-
-	
-printf("Vou terminar.\n");
+	printf("Vou terminar.\n");
 
 
 
