@@ -1,4 +1,11 @@
 /*Non-Canonical Input Processing*/
+/*
+Acabar write
+Depois do read (criar imagem com o nome e escrever)
+Ler imagem
+Refactor
+Alguma Documentaçao
+*/
 
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -22,10 +29,14 @@
 #define FLAG 0x7e
 #define A 0x03
 #define CSET 0x03
-#define CUA 0x07 
-#define DISC 0x0B
- 
-enum State {START, FLAG_RCV, A_RCV, C_RCV, BCC_RCV, STOP};
+#define CUA 0x07
+#define CDISC 0x0B
+#define CRR0 0x05
+#define CRR1 0x85
+#define CREJ0 0x01
+#define CREJ1 0x81
+
+enum State {START, FLAG_RCV, A_RCV, C_RCV, BCC_RCV, STOP, DATA_RCV};
 
 enum State  state = START;
 unsigned char ua[5];
@@ -52,32 +63,65 @@ write (*fd, set, 5);
 
 void sendDisc(int *fd){
 	unsigned char set[5];
-tcflush(*fd, TCOFLUSH);
+  tcflush(*fd, TCOFLUSH);
 
-set[0] = FLAG;
-set[1] = A;
-set[2] = DISC;
-set[3] = set[1]^set[2];
-set[4] = FLAG;
+  set[0] = FLAG;
+  set[1] = A;
+  set[2] = CDISC;
+  set[3] = set[1]^set[2];
+  set[4] = FLAG;
 
-write (*fd, set, 5);
+  write (*fd, set, 5);
 
 }
 
+void sendRR(int *fd,int Nr){
+	unsigned char set[5];
+  tcflush(*fd, TCOFLUSH);
+
+  set[0] = FLAG;
+  set[1] = A;
+  if(Nr == 0)
+    set[2] = CRR0;
+  else
+    set[2] = CRR1;
+  set[3] = set[1]^set[2];
+  set[4] = FLAG;
+
+  write (*fd, set, 5);
+
+}
+
+void sendRej(int *fd, int Nr){
+	unsigned char set[5];
+  tcflush(*fd, TCOFLUSH);
+
+  set[0] = FLAG;
+  set[1] = A;
+  if(Nr == 0)
+    set[2] = CREJ0;
+  else
+    set[2] = CREJ1;
+  set[3] = set[1]^set[2];
+  set[4] = FLAG;
+
+  write (*fd, set, 5);
+
+}
 void maquinaEstados(unsigned char tmp, char buf[], unsigned char byteControl) {
 		printf("---%x---\n",tmp);
 		switch(state) {
 			case START:
 				if(tmp == FLAG)	{
-					state = FLAG_RCV;	
-					buf[state] = tmp;				
+					state = FLAG_RCV;
+					buf[state] = tmp;
 				}
 				break;
 			case FLAG_RCV:
 				if(tmp == A) {
 					state = A_RCV;
-					buf[state] = tmp;				
-				}				
+					buf[state] = tmp;
+				}
 				else if (tmp == FLAG)
 					state = FLAG_RCV;
 				else
@@ -86,7 +130,7 @@ void maquinaEstados(unsigned char tmp, char buf[], unsigned char byteControl) {
 			case A_RCV:
 				if(tmp == byteControl) {
 					state = C_RCV;
-					buf[state] = tmp;				
+					buf[state] = tmp;
 				}
 				else if(tmp == FLAG)
 			  		state = FLAG_RCV;
@@ -96,8 +140,8 @@ void maquinaEstados(unsigned char tmp, char buf[], unsigned char byteControl) {
 			case C_RCV:
 				if (tmp == buf[1]^buf[2]) {
 					state = BCC_RCV;
-					buf[state] = tmp;				
-				}					
+					buf[state] = tmp;
+				}
 				else if (tmp == FLAG)
 					state = FLAG_RCV;
 				else
@@ -107,7 +151,7 @@ void maquinaEstados(unsigned char tmp, char buf[], unsigned char byteControl) {
 
 				if (tmp == FLAG) {
 					state = STOP;
-					buf[state] = tmp;				
+					buf[state] = tmp;
 				}
 				else
 					state = START;
@@ -130,26 +174,26 @@ int llopen(int fd){
 	}
 	if(buf[1]^buf[2] == A^CSET) {
 		sendUA(&fd);
-		return 1;	
+		return 1;
 	}
 	else
 		return 0;
 }
 
-void maquinaEstadosTransferencia(unsigned char td, char buf[]) {
+void maquinaEstadosTransferencia(unsigned char td, char buf[], int n) {
 
 		switch(state) {
 			case START:
 				if(td == FLAG)	{
-					state = FLAG_RCV;	
-					buf[state] = td;				
+					state = FLAG_RCV;
+					buf[state] = td;
 				}
 				break;
 			case FLAG_RCV:
 				if(td == A) {
 					state = A_RCV;
-					buf[state] = td;				
-				}				
+					buf[state] = td;
+				}
 				else if (td == FLAG)
 					state = FLAG_RCV;
 				else
@@ -158,7 +202,7 @@ void maquinaEstadosTransferencia(unsigned char td, char buf[]) {
 			case A_RCV:
 				if(td == DISC) {
 					state = C_RCV;
-					buf[state] = td;				
+					buf[state] = td;
 				}
 				else if(td == FLAG)
 			  		state = FLAG_RCV;
@@ -168,25 +212,30 @@ void maquinaEstadosTransferencia(unsigned char td, char buf[]) {
 			case C_RCV:
 				if (td == buf[1]^buf[2]) {
 					state = BCC_RCV;
-					buf[state] = td;				
-				}					
+					buf[state] = td;
+				}
 				else if (td == FLAG)
 					state = FLAG_RCV;
 				else
 					state = START;
 				break;
 			case BCC_RCV:
-
 				if (td == FLAG) {
-					state = STOP;
-					buf[state] = td;				
+					state = DATA_RCV;
+					buf[state] = td;
 				}
 				else
 					state = START;
 				break;
 			case STOP:
+        buf[n] = td;
 				break;
-
+      case DATA_RCV:
+        if(td == FLAG) {
+          state = STOP;
+        }
+        else
+          buf[n] = td;
 		}
 }
 
@@ -194,14 +243,52 @@ void llread(int fd) {
 	state = START;
 
 	unsigned char td;
-	unsigned char buf[5];
+	unsigned char buf[5], out[5];
+  int n = 0, Ns = 0, Nr = 1, novatrama = 0;
 
 	while(state != STOP) {
 
 		read(fd, &td, 1);
-		maquinaEstadosTransferencia(td, buf);
+    destuffing(buf, out)
+		maquinaEstadosTransferencia(td, out, bcc,n);
+    n++;
+
 	}
 
+
+  if(out[1]^out[2] != out[3]) {
+    printf("Error in llread Head BCC\n");
+    exit(3);
+  }
+  int bcc = 0x00;
+  if(Ns == out[1])
+    novatrama = 0;
+  else {
+    novatrama = 1;
+    if(out[1] == 0) {
+      Ns = 1;
+      Nr = 0;
+    }
+    else {
+      Ns = 0;
+      Nr = 1;
+    }
+  }
+  for(int i = 4; i  < n - 1; i++) {
+    bcc = bcc^out[i];
+  }
+  if(bcc == 0 && novatrama == 1) {
+    sendRR(fd, Nr);
+  }
+  else if(bcc == 0 && novatrama == 0) {
+    sendRR(fd, Nr);
+  }
+  else if(bcc = 1 && novatrama == 1) {
+    sendRej(fd, Nr);
+  }
+  else if(bcc = 1 && novatrama == 0) {
+    sendRR(fd, Nr);
+  }
 }
 
 void llclose(int fd) {
@@ -219,6 +306,26 @@ void llclose(int fd) {
 	else
 		printf("Terminação Incorreta\n");
 }
+
+void destuffing(char[] in, char[] out) {
+  int size = sizeof(in) / sizeof(in[0]);
+  int n = 0;
+  out[n] = in[0];
+  n++;
+  for(int i = 1; i < size; i++) {
+    if(in[i] == 0x5e && in[i-1] == 0x7d)
+      out[n - 1] = 0x7e;
+    else if(in[i] == 0x5d && in[i-1] == 0x7d)
+      continue;
+    else {
+      out[n] = in[i];
+      n++;
+    }
+  }
+
+}
+
+
 int main(int argc, char** argv)
 {
 
@@ -226,9 +333,9 @@ int main(int argc, char** argv)
     struct termios oldtio,newtio;
     char buf[255];
     int i, sum = 0, speed = 0;
-    
-    if ( (argc < 2) || 
-  	     ((strcmp("/dev/ttyS0", argv[1])!=0) && 
+
+    if ( (argc < 2) ||
+  	     ((strcmp("/dev/ttyS0", argv[1])!=0) &&
   	      (strcmp("/dev/ttyS1", argv[1])!=0) )) {
       printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
       exit(1);
@@ -262,8 +369,8 @@ int main(int argc, char** argv)
 
 
 
-  /* 
-    VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a 
+  /*
+    VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a
     leitura do(s) próximo(s) caracter(es)
   */
 
@@ -288,15 +395,15 @@ int main(int argc, char** argv)
 		exit(0);
 	}
 	llread(fd);
-	llclose(fd);		
-  /* 
-    O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar 
-    o indicado no guião 
+	llclose(fd);
+  /*
+    O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar
+    o indicado no guião
   */
 
 
 
-   
+
     if ( tcsetattr(fd,TCSANOW,&oldtio) == -1) {
       perror("tcsetattr");
       exit(-1);
