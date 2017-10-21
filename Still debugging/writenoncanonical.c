@@ -248,7 +248,7 @@ void llclose(){
 	sendUA(&fd);
 }
 
-void stuffing(char* in, char* out) {
+int stuffing(char* in, char* out) {
 	int size = sizeof(in) / sizeof(in[0]);
 	int n = 0;
 	
@@ -271,19 +271,22 @@ void stuffing(char* in, char* out) {
 		}
 			
 	}
-	out[n] = NULL;
+	return n;
 }
 
 unsigned char receive_feedback(unsigned char control_byte_expected){
 	char tmp[5];
 	state = START;
+	unsigned char ua;
 	while (state !=STOP){
 		int res = read(fd, &ua, 1);
 		if(res>0)
 			maquinaEstados(ua, tmp, (0x80 & RR));
-		}else if(res == 0){ //timeout
-			break;	
-		}
+		else
+			if(res == 0) //timeout
+				break;	
+		
+		
 		if(tmp[3] != tmp[1]^tmp[2])     ///???
 			continue;		///???	
 	}
@@ -294,22 +297,25 @@ unsigned char receive_feedback(unsigned char control_byte_expected){
 }
 
 void send_control_packet(unsigned char end_start){
+	unsigned char acknowledged;
+	int i;
 	do{
-		write(fd, FLAG);
-		write(fd, A);
-		write(fd, I0);
-		write(fd, A^I0);
-		if(end_start)
-			write(fd, START_PACKET_CONTROL);
-		else
-			write(fd, END_PACKET_CONTROL);
-		write(fd, control_packet.T1);
-		write(fd, control_packet.L1);
-		write(fd, control_packet.V1);
-		write(fd, control_packet.T2);
-		write(fd, control_packet.L2);
+		unsigned char byte[6] = {FLAG, A, I0, A^I0};
+
+		byte[4] = (end_start ? START_PACKET_CONTROL : END_PACKET_CONTROL);
+			
+		for(i = 0; i < 5; i++){
+			write(fd, &(byte[i]), 1);
+		}
+
+		write(fd, &control_packet.T1, 1);
+		write(fd, &control_packet.L1, 1);
+		write(fd, &control_packet.V1, 1);
+		write(fd, &control_packet.T2, 1);
+		write(fd, &control_packet.L2, 1);
+
 		for(i = 0; i < control_packet.L2; i++){
-			write(fd, control_packet.V2[i]);	
+			write(fd, &control_packet.V2[i], 1);
 		}
 		
 		unsigned char control_byte_expected = (0x80 & RR);
@@ -320,15 +326,27 @@ void send_control_packet(unsigned char end_start){
 }
 
 
+void read_data_into_packet(){
+	static char sequence_number = 0; //??????? 0 1 0 1 0 1 2 3 4
+	data_packet.N = ++sequence_number;
+	
+	short read_n_bytes;
+
+	if( (read_n_bytes = fread(data_packet.P, NUMBER_BYTES_EACH_PACKER, 1, imagem)) != NUMBER_BYTES_EACH_PACKER){
+		data_packet.L2 = read_n_bytes >> 8;
+		data_packet.L1 = (unsigned char)read_n_bytes;
+	}
+	
+}
+
 int llwrite(int fd) {
 
 	send_control_packet(1);
 	
 	unsigned char indice_trama = 1;
 
-	unsigned char trama_informacao[5];
-	trama_informacao[0] = FLAG;
-	trama_informacao[1] = A;
+	unsigned char trama_informacao[5] = {FLAG, A};
+	trama_informacao[4] = FLAG;
 
 	long long int file_size_inc = 0;
 	while(control_packet.V1 > file_size_inc){
@@ -348,60 +366,51 @@ int llwrite(int fd) {
 
 		file_size_inc+=data_length;
 
-		unsigned char BCC2 = 0x00;
+		unsigned char bcc2 = 0x00;
 
 		for(i = 0; i< data_length; i++)
-			BCC2 = BCC2 ^ data_packet.P[i];
+			bcc2 = bcc2 ^ data_packet.P[i];
 		
-		unsigned int stuffed_data[NUMBER_BYTES_EACH_PACKER+2]
-		stuffing(data_packet.P, stuffed_data);
+		unsigned char stuffed_data[NUMBER_BYTES_EACH_PACKER+2];
+		int size_stuffed = stuffing(data_packet.P, stuffed_data);
 
 		unsigned char acknowledged = 0;
 		unsigned char count = 0;
 		do{		
 			//send trama header
 			for(i = 0; i < 4; i++){
-				write(fd, trama_informacao[i], 1);
+				write(fd, &trama_informacao[i], 1);
 			}
 	
-			write(data_packet.C,1);
-			write(data_packet.N,1);
-			write(data_packet.L2,1);
-			write(data_packet.L1,1);
+			write(fd, &data_packet.C, 1);
+			write(fd, &data_packet.N, 1);
+			write(fd, &data_packet.L2, 1);
+			write(fd, &data_packet.L1, 1);
 
-			int indx = 0;
-			while(stuffed_data[indx] != NULL)
-				write(fd, stuffed_data[indx++]);
+			int indx;
+			for(indx = 0; indx < size_stuffed; indx++)
+				write(fd, &stuffed_data[indx++], 1);
 
-			write(fd, BCC2);
-			write(fd, FLAG);
+			write(fd, &bcc2, 1);
+
+			write(fd, &trama_informacao[4], 1); //FLAG
 						
 			unsigned char control_byte_expected = ((indice_trama ? 0x00:0x80) & RR);
 
 			acknowledged = receive_feedback(control_byte_expected);	
 
 		}while(!acknowledged && (++count < MAX_TIMEOUTS));
-		if(!acknowledged){ //3 REJ or 3 Timeouts
+
+		if(!acknowledged){ //X REJ, Y Timeouts, X+Y = 3
 			exit(2);
 		}
+
 		indice_trama=!indice_trama;
 	}
 
 	send_control_packet(0);	
 }
 
-void read_data_into_packet(){
-	static char sequence_number = 0; //???????
-	data_packet.N = ++sequence_number;
-	
-	short read_n_bytes;
-
-	if( (read_n_bytes = fread(data_packet.P, NUMBER_BYTES_EACH_PACKER, 1, imagem)) != NUMBER_BYTES_EACH_PACKER){
-		data_packet.L2 = read_n_bytes >> 8;
-		data_packet.L1 = (unsigned char)read_n_bytes;
-	}
-	
-}
 
 void setup_data_packet(){
 
@@ -437,9 +446,7 @@ void setup_control_packet(char *argv){
 
 
 
-int main(int argc, char** argv)
-{
-
+int main(int argc, char** argv){
 
     int c, res;
     struct termios oldtio,newtio;
@@ -498,25 +505,25 @@ int main(int argc, char** argv)
     printf("New termios structure set\n");
 
 
-	(void) signal(SIGALRM, atende);  // instala  rotina que atende interrupcao
+    (void) signal(SIGALRM, atende);  // instala  rotina que atende interrupcao
 
     imagem = fopen(argv[2], "rb");
 
-	setup_control_packet(argv[2]);
-	setup_data_packet();
-	
-	llopen(fd);
-	
-	llwrite(fd);
+    setup_control_packet(argv[2]);
+    setup_data_packet();
 
-	llclose(fd);
+    llopen(fd);
  
-	free(data_packet.P);
-	free(control_packet.V2);
-	
-	
-	
-	printf("Vou terminar.\n");
+    llwrite(fd);
+
+    llclose(fd);
+
+    free(data_packet.P);
+    free(control_packet.V2);
+
+
+
+    printf("Vou terminar.\n");
 
 
 
@@ -534,8 +541,9 @@ int main(int argc, char** argv)
     }
 
 
-	fclose(imagem);
+    fclose(imagem);
 
     close(fd);
     return 0;
 }
+
