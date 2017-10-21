@@ -1,5 +1,3 @@
-/*Non-Canonical Input Processing*/
-
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <fcntl.h>
@@ -27,12 +25,14 @@
 #define CSET 0x03
 #define CUA 0x07 
 #define CDISC 0x0B
+#define RR 0x05
 
 #define START_PACKET_CONTROL 0x02
 #define END_PACKET_CONTROL 0x03
 
 //configuration
 #define NUMBER_BYTES_EACH_PACKER 0x80
+#define MAX_TIMEOUTS 3
 
 
 
@@ -69,7 +69,6 @@ void maquinaEstados(unsigned char ua, char buf[], unsigned char byteControl)
 		exit(-1);
 	}
 
-	printf("STATE: %d\n",state);
 	switch(state) {
 		case START:
 			if(ua == FLAG)	{
@@ -89,7 +88,6 @@ void maquinaEstados(unsigned char ua, char buf[], unsigned char byteControl)
 				state = START;
 			break;
 		case A_RCV:
-			printf("%x\n",ua);
 			if(ua == byteControl)
 			{
 				buf[state] = ua;
@@ -160,7 +158,7 @@ void llopen(int fd) {
 
 	char tmp[5];
 
-	while(conta < 4) {			
+	while(conta <= MAX_TIMEOUTS) {			
 
 		if (flag){
 			alarm(3);
@@ -219,7 +217,7 @@ void llclose(){
 	conta=1;
 	flag = 1;
 	char tmp[5];
-	while(conta < 4) {			
+	while(conta <= MAX_TIMEOUTS) {			
 
 		if (flag){
 			alarm(3);
@@ -227,6 +225,7 @@ void llclose(){
 			sendDisc(&fd);
 			flag = 0;
 			tcflush(fd,TCIFLUSH);
+
 			state = START;
 			while ((state !=STOP) && !flag){
 				unsigned char disc;
@@ -236,10 +235,15 @@ void llclose(){
 				if(tmp[3] != tmp[1]^tmp[2])
 					continue;			
 			}
+
 			printf("STATE END: %d\n",state);
 			if(state == STOP)
 				break;
 		}
+	}
+
+	if(state!=STOP){
+		exit(2);
 	}
 	sendUA(&fd);
 }
@@ -270,23 +274,49 @@ void stuffing(char* in, char* out) {
 	out[n] = NULL;
 }
 
-void send_control_packet(unsigned char end_start){
-	write(fd, FLAG);
-	write(fd, A);
-	write(fd, I0);
-	write(fd, A^I0);
-	if(end_start)
-		write(fd, START_PACKET_CONTROL);
-	else
-		write(fd, END_PACKET_CONTROL);
-	write(fd, control_packet.T1);
-	write(fd, control_packet.L1);
-	write(fd, control_packet.V1);
-	write(fd, control_packet.T2);
-	write(fd, control_packet.L2);
-	for(i = 0; i < control_packet.L2; i++){
-		write(fd, control_packet.V2[i]);	
+unsigned char receive_feedback(unsigned char control_byte_expected){
+	char tmp[5];
+	state = START;
+	while (state !=STOP){
+		int res = read(fd, &ua, 1);
+		if(res>0)
+			maquinaEstados(ua, tmp, (0x80 & RR));
+		}else if(res == 0){ //timeout
+			break;	
+		}
+		if(tmp[3] != tmp[1]^tmp[2])     ///???
+			continue;		///???	
 	}
+	if((state==STOP) && (tmp[2] == (0x80 & RR))){
+		return 1;
+	}
+	return 0;
+}
+
+void send_control_packet(unsigned char end_start){
+	do{
+		write(fd, FLAG);
+		write(fd, A);
+		write(fd, I0);
+		write(fd, A^I0);
+		if(end_start)
+			write(fd, START_PACKET_CONTROL);
+		else
+			write(fd, END_PACKET_CONTROL);
+		write(fd, control_packet.T1);
+		write(fd, control_packet.L1);
+		write(fd, control_packet.V1);
+		write(fd, control_packet.T2);
+		write(fd, control_packet.L2);
+		for(i = 0; i < control_packet.L2; i++){
+			write(fd, control_packet.V2[i]);	
+		}
+		
+		unsigned char control_byte_expected = (0x80 & RR);
+		acknowledged = receive_feedback(control_byte_expected);
+
+	}while(!acknowledged);
+
 }
 
 
@@ -294,7 +324,7 @@ int llwrite(int fd) {
 
 	send_control_packet(1);
 	
-	int indice_trama = 1;
+	unsigned char indice_trama = 1;
 
 	unsigned char trama_informacao[5];
 	trama_informacao[0] = FLAG;
@@ -310,8 +340,6 @@ int llwrite(int fd) {
 			trama_informacao[2] = I0;
 			trama_informacao[3] = A^I0;
 		}
-		indice_trama=!indice_trama;
-		
 
 		read_data_into_packet();
 
@@ -328,6 +356,8 @@ int llwrite(int fd) {
 		unsigned int stuffed_data[NUMBER_BYTES_EACH_PACKER+2]
 		stuffing(data_packet.P, stuffed_data);
 
+		unsigned char acknowledged = 0;
+		unsigned char count = 0;
 		do{		
 			//send trama header
 			for(i = 0; i < 4; i++){
@@ -345,13 +375,16 @@ int llwrite(int fd) {
 
 			write(fd, BCC2);
 			write(fd, FLAG);
+						
+			unsigned char control_byte_expected = ((indice_trama ? 0x00:0x80) & RR);
 
-			  ////////////////!!!!!!!!!!!!!////////////////////////////////////////////////////////
-			 // receive call back with diferent ID than the sent trama or resend the same shit ///
-			/////////////////!!!!!!!!!!!!!///////////////////////////////////////////////////////
+			acknowledged = receive_feedback(control_byte_expected);	
 
-		}while();
-		
+		}while(!acknowledged && (++count < MAX_TIMEOUTS));
+		if(!acknowledged){ //3 REJ or 3 Timeouts
+			exit(2);
+		}
+		indice_trama=!indice_trama;
 	}
 
 	send_control_packet(0);	
