@@ -64,11 +64,6 @@ struct Data_packet{
 
 void maquinaEstados(unsigned char ua, char buf[], unsigned char byteControl)
 {
-	if((byteControl!=CUA) && (byteControl!=CDISC))
-	{
-		exit(-1);
-	}
-
 	switch(state) {
 		case START:
 			if(ua == FLAG)	{
@@ -157,8 +152,8 @@ void llopen(int fd) {
 	unsigned char ua;
 
 	char tmp[5];
-
-	while(conta <= MAX_TIMEOUTS) {			
+	unsigned char leave_while = 1;
+	while((conta <= MAX_TIMEOUTS) && leave_while) {			
 
 		if (flag){
 			alarm(3);
@@ -174,9 +169,11 @@ void llopen(int fd) {
 				if(tmp[3] != tmp[1]^tmp[2])
 					continue;			
 			}
-			printf("STATE END: %d\n",state);
-			if(state == STOP)
-				break;
+			
+			if(state == STOP){
+				printf("STATE END: %d %d\n",state, STOP);
+				leave_while = 0;
+			}
 		}
 	}
 	if(state!=STOP){
@@ -241,15 +238,14 @@ void llclose(){
 				break;
 		}
 	}
-
+	alarm(0);
 	if(state!=STOP){
 		exit(2);
 	}
 	sendUA(&fd);
 }
 
-int stuffing(char* in, char* out) {
-	int size = sizeof(in) / sizeof(in[0]);
+int stuffing(int size, char* in, char* out) {
 	int n = 0;
 	
 	for(int i = 0; i < size; i++) {
@@ -278,30 +274,32 @@ unsigned char receive_feedback(unsigned char control_byte_expected){
 	char tmp[5];
 	state = START;
 	unsigned char ua;
-	while (state !=STOP){
+	flag = 0;
+	while ((state !=STOP) && !flag){
+		
 		int res = read(fd, &ua, 1);
 		if(res>0)
 			maquinaEstados(ua, tmp, (0x80 & RR));
-		else
-			if(res == 0) //timeout
-				break;	
-		
-		
+		printf("RECEIVED: %x\n", ua);
 		if(tmp[3] != tmp[1]^tmp[2])     ///???
 			continue;		///???	
+		
 	}
+
 	if((state==STOP) && (tmp[2] == (0x80 & RR))){
 		return 1;
 	}
+
 	return 0;
 }
 
 void send_control_packet(unsigned char end_start){
 	unsigned char acknowledged;
+	conta = 0;
 	int i;
 	do{
+		
 		unsigned char byte[6] = {FLAG, A, I0, A^I0};
-
 		byte[4] = (end_start ? START_PACKET_CONTROL : END_PACKET_CONTROL);
 			
 		for(i = 0; i < 5; i++){
@@ -318,21 +316,28 @@ void send_control_packet(unsigned char end_start){
 			write(fd, &control_packet.V2[i], 1);
 		}
 		
+		alarm(3);
 		unsigned char control_byte_expected = (0x80 & RR);
 		acknowledged = receive_feedback(control_byte_expected);
 
-	}while(!acknowledged);
-
+	}while(!acknowledged && (conta < MAX_TIMEOUTS));
+	alarm(0);
+	if(!acknowledged){
+		exit(2);
+	}
 }
 
 
 void read_data_into_packet(){
 	static char sequence_number = 0; //??????? 0 1 0 1 0 1 2 3 4
 	data_packet.N = ++sequence_number;
-	
-	short read_n_bytes;
+	if(sequence_number == 255)	
+		sequence_number = 0;
 
-	if( (read_n_bytes = fread(data_packet.P, NUMBER_BYTES_EACH_PACKER, 1, imagem)) != NUMBER_BYTES_EACH_PACKER){
+	int read_n_bytes = fread(data_packet.P, 1, NUMBER_BYTES_EACH_PACKER, imagem);
+	printf("Size of file:%d\n", read_n_bytes);
+	if(read_n_bytes != NUMBER_BYTES_EACH_PACKER){
+		
 		data_packet.L2 = read_n_bytes >> 8;
 		data_packet.L1 = (unsigned char)read_n_bytes;
 	}
@@ -341,14 +346,16 @@ void read_data_into_packet(){
 
 int llwrite(int fd) {
 
-	send_control_packet(1);
-	
+	//send_control_packet(1);
+
 	unsigned char indice_trama = 1;
 
 	unsigned char trama_informacao[5] = {FLAG, A};
 	trama_informacao[4] = FLAG;
 
 	long long int file_size_inc = 0;
+	unsigned char acknowledged;
+	unsigned char count;
 	while(control_packet.V1 > file_size_inc){
 
 		if(indice_trama){
@@ -362,7 +369,7 @@ int llwrite(int fd) {
 		read_data_into_packet();
 
 		int i;
-		int data_length = (data_packet.L1 << 8) + data_packet.L2;
+		int data_length = (data_packet.L2 << 8) + data_packet.L1;
 
 		file_size_inc+=data_length;
 
@@ -372,10 +379,10 @@ int llwrite(int fd) {
 			bcc2 = bcc2 ^ data_packet.P[i];
 		
 		unsigned char stuffed_data[NUMBER_BYTES_EACH_PACKER+2];
-		int size_stuffed = stuffing(data_packet.P, stuffed_data);
+		int size_stuffed = stuffing(data_length, data_packet.P, stuffed_data);
 
-		unsigned char acknowledged = 0;
-		unsigned char count = 0;
+		acknowledged = 0;
+		conta = 0;
 		do{		
 			//send trama header
 			for(i = 0; i < 4; i++){
@@ -388,19 +395,20 @@ int llwrite(int fd) {
 			write(fd, &data_packet.L1, 1);
 
 			int indx;
-			for(indx = 0; indx < size_stuffed; indx++)
-				write(fd, &stuffed_data[indx++], 1);
+			for(indx = 0; indx < size_stuffed; indx++){
+				write(fd, (stuffed_data + indx), 1);
+			}
 
 			write(fd, &bcc2, 1);
 
 			write(fd, &trama_informacao[4], 1); //FLAG
-						
+				
+			alarm(3);		
 			unsigned char control_byte_expected = ((indice_trama ? 0x00:0x80) & RR);
-
 			acknowledged = receive_feedback(control_byte_expected);	
 
-		}while(!acknowledged && (++count < MAX_TIMEOUTS));
-
+		}while(!acknowledged && (conta < MAX_TIMEOUTS));
+		alarm(0);
 		if(!acknowledged){ //X REJ, Y Timeouts, X+Y = 3
 			exit(2);
 		}
@@ -428,7 +436,7 @@ void setup_control_packet(char *argv){
 	long long int file_size;
 	fseek(imagem, 0, SEEK_END);
 	file_size=ftell(imagem);
-	fseek(imagem, 0, START);
+	rewind(imagem);
 
 	control_packet.T1 = 0x00;
 	control_packet.T2 = 0x01;
@@ -453,7 +461,7 @@ int main(int argc, char** argv){
     char buf[255];
     int i, sum = 0, speed = 0;
     
-    if ( (argc < 2) || 
+    if ( (argc < 3) || 
   	     ((strcmp("/dev/ttyS0", argv[1])!=0) && 
   	      (strcmp("/dev/ttyS1", argv[1])!=0) )) {
       printf("Usage:\tnserial SerialPort\n\tex: nserial /dev/ttyS1\n");
@@ -508,9 +516,14 @@ int main(int argc, char** argv){
     (void) signal(SIGALRM, atende);  // instala  rotina que atende interrupcao
 
     imagem = fopen(argv[2], "rb");
+    if(!imagem){
+	printf("Image could not be found!\n");
+        exit(3);
+    }
 
     setup_control_packet(argv[2]);
     setup_data_packet();
+
 
     llopen(fd);
  
