@@ -26,12 +26,16 @@
 #define CUA 0x07 
 #define CDISC 0x0B
 #define RR 0x05
+#define REJ 0x01
+#define R1 0x80
+#define R0 0x00
+
 
 #define START_PACKET_CONTROL 0x02
 #define END_PACKET_CONTROL 0x03
 
 //configuration
-#define NUMBER_BYTES_EACH_PACKER 0x80
+#define NUMBER_BYTES_EACH_PACKER 0x0a //0x80
 #define MAX_TIMEOUTS 3
 
 
@@ -64,6 +68,7 @@ struct Data_packet{
 
 void maquinaEstados(unsigned char ua, char buf[], unsigned char byteControl)
 {
+	printf("STATE:%d\n",state);
 	switch(state) {
 		case START:
 			if(ua == FLAG)	{
@@ -83,16 +88,23 @@ void maquinaEstados(unsigned char ua, char buf[], unsigned char byteControl)
 				state = START;
 			break;
 		case A_RCV:
+			printf("UA:%x Bytecontrolo:%x\n",ua,byteControl);	
 			if(ua == byteControl)
 			{
 				buf[state] = ua;
 				state = C_RCV;	
 			}
 			else 
-				if( ua == FLAG)
-			  		state = FLAG_RCV;
-				else
-					state = START;
+				if(((byteControl == RR) && (ua == REJ))
+				 || ((byteControl == (RR | 0x80)) && (ua == (REJ | 0x80))))
+				{
+					buf[state] = ua;
+					state = C_RCV;	
+				}else
+					if( ua == FLAG)
+				  		state = FLAG_RCV;
+					else
+						state = START;
 			break;
 		case C_RCV:
 			if (ua == buf[1]^buf[2])
@@ -171,7 +183,6 @@ void llopen(int fd) {
 			}
 			
 			if(state == STOP){
-				printf("STATE END: %d %d\n",state, STOP);
 				leave_while = 0;
 			}
 		}
@@ -233,7 +244,6 @@ void llclose(){
 					continue;			
 			}
 
-			printf("STATE END: %d\n",state);
 			if(state == STOP)
 				break;
 		}
@@ -279,26 +289,24 @@ unsigned char receive_feedback(unsigned char control_byte_expected){
 		
 		int res = read(fd, &ua, 1);
 		if(res>0)
-			maquinaEstados(ua, tmp, (0x80 & RR));
+			maquinaEstados(ua, tmp, control_byte_expected);
 		printf("RECEIVED: %x\n", ua);
-		if(tmp[3] != tmp[1]^tmp[2])     ///???
-			continue;		///???	
 		
 	}
-
-	if((state==STOP) && (tmp[2] == (0x80 & RR))){
+	if((state==STOP) && 
+	(((unsigned char)tmp[2]) == ((unsigned char)(control_byte_expected)))){
 		return 1;
 	}
-
+	
 	return 0;
 }
 
-void send_control_packet(unsigned char end_start){
+void send_control_packet(unsigned char end_start, unsigned char control_byte_expected){
 	unsigned char acknowledged;
 	conta = 0;
 	int i;
 	do{
-		
+		printf("sending control packet\n");
 		unsigned char byte[6] = {FLAG, A, I0, A^I0};
 		byte[4] = (end_start ? START_PACKET_CONTROL : END_PACKET_CONTROL);
 			
@@ -317,11 +325,10 @@ void send_control_packet(unsigned char end_start){
 		}
 		
 		alarm(3);
-		unsigned char control_byte_expected = (0x80 & RR);
 		acknowledged = receive_feedback(control_byte_expected);
+		alarm(0);
 
 	}while(!acknowledged && (conta < MAX_TIMEOUTS));
-	alarm(0);
 	if(!acknowledged){
 		exit(2);
 	}
@@ -346,7 +353,7 @@ void read_data_into_packet(){
 
 int llwrite(int fd) {
 
-	//send_control_packet(1);
+	send_control_packet(1, R1 | RR);
 
 	unsigned char indice_trama = 1;
 
@@ -372,6 +379,7 @@ int llwrite(int fd) {
 		int data_length = (data_packet.L2 << 8) + data_packet.L1;
 
 		file_size_inc+=data_length;
+		printf("%ld %ld\n", file_size_inc, control_packet.V1);
 
 		unsigned char bcc2 = 0x00;
 
@@ -404,11 +412,12 @@ int llwrite(int fd) {
 			write(fd, &trama_informacao[4], 1); //FLAG
 				
 			alarm(3);		
-			unsigned char control_byte_expected = ((indice_trama ? 0x00:0x80) & RR);
+			unsigned char control_byte_expected = ((indice_trama ? R0:R1) | RR);
 			acknowledged = receive_feedback(control_byte_expected);	
+			alarm(0);
 
 		}while(!acknowledged && (conta < MAX_TIMEOUTS));
-		alarm(0);
+
 		if(!acknowledged){ //X REJ, Y Timeouts, X+Y = 3
 			exit(2);
 		}
@@ -416,7 +425,7 @@ int llwrite(int fd) {
 		indice_trama=!indice_trama;
 	}
 
-	send_control_packet(0);	
+	send_control_packet(0, (indice_trama ? R0:R1) | RR);	
 }
 
 
