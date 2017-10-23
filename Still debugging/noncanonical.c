@@ -81,7 +81,7 @@ void sendRR(int *fd,int Nr){
 
   set[0] = FLAG;
   set[1] = A;
-  if(Nr == 0)
+  if(Nr == 1)
     set[2] = CRR0;
   else
     set[2] = CRR1;
@@ -98,7 +98,7 @@ void sendRej(int *fd, int Nr){
 
   set[0] = FLAG;
   set[1] = A;
-  if(Nr == 0)
+  if(Nr == 1)
     set[2] = CREJ0;
   else
     set[2] = CREJ1;
@@ -109,7 +109,7 @@ void sendRej(int *fd, int Nr){
 
 }
 void maquinaEstados(unsigned char tmp, char buf[], unsigned char byteControl) {
-		printf("---%x---\n",tmp);
+
 		switch(state) {
 			case START:
 				if(tmp == FLAG)	{
@@ -138,6 +138,7 @@ void maquinaEstados(unsigned char tmp, char buf[], unsigned char byteControl) {
 					state = START;
 				break;
 			case C_RCV:
+
 				if (tmp == buf[1]^buf[2]) {
 					state = BCC_RCV;
 					buf[state] = tmp;
@@ -169,6 +170,7 @@ int llopen(int fd){
 	unsigned char set;
 	char buf[5];
 	while(state!= STOP){
+		printf("STATE: %d\n",state);
 		read(fd, &set, 1);
 		maquinaEstados(set,buf,CSET);
 	}
@@ -182,62 +184,63 @@ int llopen(int fd){
 
 void maquinaEstadosTransferencia(unsigned char td, char buf[], int n) {
 
-		switch(state) {
-			case START:
-				if(td == FLAG)	{
-					state = FLAG_RCV;
-					buf[state] = td;
-				}
-				break;
-			case FLAG_RCV:
-				if(td == A) {
-					state = A_RCV;
-					buf[state] = td;
-				}
-				else if (td == FLAG)
-					state = FLAG_RCV;
-				else
-					state = START;
-				break;
-			case A_RCV:
-				//if(td == DISC) {
-				//	state = C_RCV;
-				//	buf[state] = td;
-				//}
-				//else 
-				if(td == FLAG)
-			  		state = FLAG_RCV;
-				else
-					state = START;
-				break;
-			case C_RCV:
-				if (td == buf[1]^buf[2]) {
-					state = BCC_RCV;
-					buf[state] = td;
-				}
-				else if (td == FLAG)
-					state = FLAG_RCV;
-				else
-					state = START;
-				break;
-			case BCC_RCV:
-				if (td == FLAG) {
-					state = DATA_RCV;
-					buf[state] = td;
-				}
-				else
-					state = START;
-				break;
-			case STOP:
-        buf[n] = td;
-				break;
-      case DATA_RCV:
-        if(td == FLAG) {
-          state = STOP;
-        }
-        else
-          buf[n] = td;
-		}
+	switch(state) {
+		case START:
+			if(td == FLAG)	{
+				state = FLAG_RCV;
+				buf[n] = td;
+			}
+			break;
+		case FLAG_RCV:
+			if(td == A) {
+				state = A_RCV;
+				buf[n] = td;
+			}
+			else if (td == FLAG)
+				state = FLAG_RCV;
+			else
+				state = START;
+			break;
+		case A_RCV:
+			/*if(td == CDISC) {
+				state = C_RCV;
+				buf[state] = td;
+			}
+			else*/ 
+			if(td == FLAG)
+		  		state = FLAG_RCV;
+			else
+				state = START;
+			break;
+		case C_RCV:
+			if (td == buf[1]^buf[2]) {
+				state = BCC_RCV;
+				buf[n] = td;
+			}
+			else if (td == FLAG)
+				state = FLAG_RCV;
+			else
+				state = START;
+			break;
+		case BCC_RCV:
+			if (td == FLAG) {
+				state = DATA_RCV;
+				buf[n] = td;
+			}
+			else
+				state = START;
+			break;
+		case STOP:
+			buf[n] = td;
+			break;
+		case DATA_RCV:
+			if(td == FLAG) {
+				state = STOP;
+			}
+			else
+				buf[n] = td;
+			break;
+	}
 }
 
 void destuffing(char *in, char *out) {
@@ -258,66 +261,84 @@ void destuffing(char *in, char *out) {
 
 }
 
+void sendData(char* data) {
+	if(data[0] == 0x02 || data[0] == 0x03)
+		printf("Control Packet\n");
+	else if(data[0] == 0x00 || data[0] == 0x01)
+		printf("Data Packet\n");
+}
+
 void llread(int fd) {
 	state = START;
 
 	unsigned char td;
-	unsigned char buf[5], out[5];
-  	int n = 0, Ns = 0, Nr = 1, novatrama = 0;
+	unsigned char buf[400];
+  	int n = 0, Ns = 0, Nr = 1, novatrama = 0, x = 0;
 	int indx = 0;
 	int res;
-	while(1){
-		state = START;
+	state = START;
+	while(1) {
 		while(state != STOP) {
-
 			res = read(fd, &td, 1);
 			if(res == 0)
 				state = STOP;
-			printf("byte: %x char: %c \n", td);
-	    		//destuffing(buf, out);
-		
-			//maquinaEstadosTransferencia(td, out, bcc,n);
+			printf("byte: %x char: %c \n", td);	
+			maquinaEstadosTransferencia(td, buf,n);
 	   		n++;
 		}
-		indx = !indx;
-		sendRej(&fd,indx);
-	}
-/*
+		if(buf[n - 1] == CDISC) {
+			printf("Received DISC\n");		
+			return;
+		}
+	
+		unsigned char dados[n - 4];
+	 	for(int i = 4; i < n - 1; i++) {
+			dados[x] = dados[i];
+			x++;
+	 	}
+		if(buf[1]^buf[2] != buf[3]) {
+			printf("Error in llread Head BCC\n");
+			exit(3);
+		}
+		  
+		int bcc = 0x00;
+			if(Ns == dados[1])
+				novatrama = 0;
+			else {
+				novatrama = 1;
+				if(dados[1] == 0) {
+					Ns = 1;
+					Nr = 0;
+				}
+				else {
+					Ns = 0;
+					Nr = 1;
+			}
+		}
+		for(int i = 4; i  < x ; i++) {
+			bcc = bcc^dados[i];
+		}
+		
+		printf("BCC: %d\n Nova Trama: %d\n",bcc, novatrama);
 
-  if(out[1]^out[2] != out[3]) {
-    printf("Error in llread Head BCC\n");
-    exit(3);
-  }
-  int bcc = 0x00;
-  if(Ns == out[1])
-    novatrama = 0;
-  else {
-    novatrama = 1;
-    if(out[1] == 0) {
-      Ns = 1;
-      Nr = 0;
-    }
-    else {
-      Ns = 0;
-      Nr = 1;
-    }
-  }
-  for(int i = 4; i  < n - 1; i++) {
-    bcc = bcc^out[i];
-  }
-  if(bcc == 0 && novatrama == 1) {
-    sendRR(&fd, Nr);
-  }
-  else if(bcc == 0 && novatrama == 0) {
-    sendRR(&fd, Nr);
-  }
-  else if(bcc = 1 && novatrama == 1) {
-    sendRej(&fd, Nr);
-  }
-  else if(bcc = 1 && novatrama == 0) {
-    sendRR(&fd, Nr);
-  }*/
+		if(bcc == 0 && novatrama == 1) {
+			sendRR(&fd, Nr);
+			sendData(dados);
+		}
+		else if(bcc == 0 && novatrama == 0) {
+			sendRR(&fd, Nr);
+		}
+		else if(bcc = 1 && novatrama == 1) {
+			sendRej(&fd, Nr);
+		}
+		else if(bcc = 1 && novatrama == 0) {
+			sendRR(&fd, Nr);
+		}
+	}
 }
+
+
+
 
 void llclose(int fd) {
 	state = START;
