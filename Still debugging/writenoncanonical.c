@@ -257,8 +257,8 @@ void llclose(){
 
 int stuffing(int size, char* in, char* out) {
 	int n = 0;
-	
-	for(int i = 0; i < size; i++) {
+	int i;
+	for(i = 0; i < size; i++) {
 		if(in[i] == 0x7e) {
 			out[n] = 0x7d;
 			n++;
@@ -314,16 +314,25 @@ void send_control_packet(unsigned char end_start, unsigned char control_byte_exp
 			write(fd, &(byte[i]), 1);
 		}
 
+
+		unsigned char bcc2 = 0x00;
 		write(fd, &control_packet.T1, 1);
 		write(fd, &control_packet.L1, 1);
 		write(fd, &control_packet.V1, 1);
 		write(fd, &control_packet.T2, 1);
 		write(fd, &control_packet.L2, 1);
 
+		bcc2 = control_packet.T1 ^ control_packet.L1 ^ control_packet.V1 ^ control_packet.T2 ^ control_packet.L2;
+
 		for(i = 0; i < control_packet.L2; i++){
 			write(fd, &control_packet.V2[i], 1);
+			bcc2 = bcc2 ^ control_packet.V2[i];
 		}
 		
+		write(fd, &bcc2, 1);
+		write(fd, &(byte[0]), 1);
+
+
 		alarm(3);
 		acknowledged = receive_feedback(control_byte_expected);
 		alarm(0);
@@ -383,8 +392,15 @@ int llwrite(int fd) {
 
 		unsigned char bcc2 = 0x00;
 
+		bcc2 = bcc2 ^ data_packet.C;
+		bcc2 = bcc2 ^ data_packet.N;
+		bcc2 = bcc2 ^ data_packet.L2;
+		bcc2 = bcc2 ^ data_packet.L1;
+		bcc2 = bcc2 ^ data_packet.C;
+	
 		for(i = 0; i< data_length; i++)
 			bcc2 = bcc2 ^ data_packet.P[i];
+		
 		
 		unsigned char stuffed_data[NUMBER_BYTES_EACH_PACKER+2];
 		int size_stuffed = stuffing(data_length, data_packet.P, stuffed_data);
@@ -568,4 +584,3 @@ int main(int argc, char** argv){
     close(fd);
     return 0;
 }
-
