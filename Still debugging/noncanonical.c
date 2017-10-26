@@ -270,7 +270,8 @@ void destuffing(char *in, char *out, int size) {
 void sendData(char* data) {
 
 	int i;
-
+	
+	printf("\n");
 	if(data[0] == 0x02) {
 
 		char* filename = (char*) malloc(data[5]);
@@ -325,12 +326,15 @@ void llread(int fd) {
 		}
 		printf("n= %d\n",n);
 		unsigned char* dados = (unsigned char *)malloc(1);
+		printf(""); 
 	 	for(i = 4; i < n - 2; i++) {
 			dados[x] = buf[i];
+			printf("DADOS: %x, BUF: %x",dados[x],buf[i]); 
 			x++;
 			dados = (unsigned char *)realloc(dados, x);
+			
 	 	}
-
+		printf("\n");
 		if((buf[1]^buf[2]) != buf[3]) {
 
 			printf("Error in llread Head BCC\n");
@@ -354,8 +358,8 @@ void llread(int fd) {
 					Nr = 0x00;
 			}
 		}	
-		if(novatrama == 0)
-			printf("NOVATRAMA: %d\n",novatrama);
+
+		printf("NOVATRAMA: %d\n",novatrama);
 		unsigned char bcc = 0x00;
 		printf("X= %d",x);
 		for(i = 0; i  < x ; i++) {
@@ -372,22 +376,17 @@ void llread(int fd) {
 
 		}
 		else if(bcc == buf[n - 2] && novatrama == 0) {
-		printf("\n!!!!!!!!BCCCalculado: %d123213442334\n",bcc);
-		printf("\n!!!!!!!!BCC: %d123213442334\n",buf[n-2]);
+		printf("\n!!!!!!!!BCCCalculado: %d   123213442334\n",bcc);
+		printf("\n!!!!!!!!BCC: %d   123213442334\n",buf[n-2]);
 			sendRR(&fd, Nr);
 
 		}
 		else if(bcc != buf[n - 2] && novatrama == 1) {
 		printf("\n!!!!!!!!BCCCalculado: %d\n",bcc);
 		printf("\n!!!!!!!!BCC: %d\n",buf[n-2]);
-			printf("DADOS: ");
+		
 			for(i = 0; i < 20; i++) {
 				printf("%x ",dados[i]);
-			}
-			printf("\n");
-			printf("BUF: ");
-			for(i = 0; i < 20; i++) {
-				printf("%x ",buf[i]);
 			}
 			printf("\n");
 			sendRej(&fd, Nr);
