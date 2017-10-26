@@ -328,12 +328,12 @@ void llread(int fd) {
 		unsigned char* dados = (unsigned char *)malloc(1);
 		
 		for(i = 0; i < 4; i++) {
-			printf("BUFHEAD: %x",buf[i]);
+			printf("BUFHEAD: %x ",buf[i]);
 		}
 		printf("\n");
 	 	for(i = 4; i < n - 2; i++) {
 			dados[x] = buf[i];
-			printf("DADOS: %x, BUF: %x",dados[x],buf[i]); 
+			printf("DADOS: %x, BUF: %x ",dados[x],buf[i]); 
 			x++;
 			dados = (unsigned char *)realloc(dados, x);
 			
