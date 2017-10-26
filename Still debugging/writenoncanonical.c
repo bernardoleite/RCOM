@@ -68,7 +68,7 @@ struct Data_packet{
 
 void maquinaEstados(unsigned char ua, char buf[], unsigned char byteControl)
 {
-	printf("STATE:%d\n",state);
+	//printf("STATE:%d\n",state);
 	switch(state) {
 		case START:
 			if(ua == FLAG)	{
@@ -88,7 +88,7 @@ void maquinaEstados(unsigned char ua, char buf[], unsigned char byteControl)
 				state = START;
 			break;
 		case A_RCV:
-			printf("UA:%x Bytecontrolo:%x\n",ua,byteControl);	
+			//printf("UA:%x Bytecontrolo:%x\n",ua,byteControl);	
 			if(ua == byteControl)
 			{
 				buf[state] = ua;
@@ -169,7 +169,7 @@ void llopen(int fd) {
 
 		if (flag){
 			alarm(3);
-			printf("Envia set\n");
+			//printf("Envia set\n");
 			sendSet(&fd);
 			flag = 0;
 			tcflush(fd,TCIFLUSH);
@@ -193,7 +193,7 @@ void llopen(int fd) {
 }
 
 void sendDisc(int *fd){
-
+	//printf("HERE!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 	unsigned char disc[5];
 	tcflush(*fd, TCOFLUSH);
 	
@@ -229,7 +229,7 @@ void llclose(){
 
 		if (flag){
 			alarm(3);
-			printf("Envia disc\n");
+			//printf("Envia disc\n");
 			sendDisc(&fd);
 			flag = 0;
 			tcflush(fd,TCIFLUSH);
@@ -290,7 +290,7 @@ unsigned char receive_feedback(unsigned char control_byte_expected){
 		int res = read(fd, &ua, 1);
 		if(res>0)
 			maquinaEstados(ua, tmp, control_byte_expected);
-		printf("RECEIVED: %x\n", ua);
+		//printf("RECEIVED: %x\n", ua);
 		
 	}
 	if((state==STOP) && 
@@ -301,34 +301,37 @@ unsigned char receive_feedback(unsigned char control_byte_expected){
 	return 0;
 }
 
-void send_control_packet(unsigned char end_start, unsigned char control_byte_expected){
+void send_control_packet(unsigned char end_start, unsigned char control_byte_expected, unsigned char indice_trama){
 	unsigned char acknowledged;
 	conta = 0;
 	int i;
 	do{
-		printf("sending control packet\n");
-		unsigned char byte[6] = {FLAG, A, I0, A^I0};
+		//printf("sending control packet\n");
+		unsigned char byte[6] = {FLAG, A, (indice_trama ? I1:I0), A^I0};
 		byte[4] = (end_start ? START_PACKET_CONTROL : END_PACKET_CONTROL);
 			
 		for(i = 0; i < 5; i++){
 			write(fd, &(byte[i]), 1);
+			printf("HEAD: %x ", byte[i]);
 		}
 
 
-		unsigned char bcc2 = 0x00;
 		write(fd, &control_packet.T1, 1);
 		write(fd, &control_packet.L1, 1);
 		write(fd, &control_packet.V1, 1);
+		printf("--size-->>>%ld",control_packet.V1);
 		write(fd, &control_packet.T2, 1);
 		write(fd, &control_packet.L2, 1);
 
-		bcc2 = control_packet.T1 ^ control_packet.L1 ^ control_packet.V1 ^ control_packet.T2 ^ control_packet.L2;
+		unsigned char bcc2 = 0x00;
+		bcc2 = control_packet.C ^ control_packet.T1 ^ control_packet.L1 ^ control_packet.V1 ^ control_packet.T2 ^ control_packet.L2;
 
+		//stuffing
 		for(i = 0; i < control_packet.L2; i++){
 			write(fd, &control_packet.V2[i], 1);
 			bcc2 = bcc2 ^ control_packet.V2[i];
 		}
-		
+		//printf("BCC2: %x\n",bcc2);
 		write(fd, &bcc2, 1);
 		write(fd, &(byte[0]), 1);
 
@@ -351,20 +354,28 @@ void read_data_into_packet(){
 		sequence_number = 0;
 
 	int read_n_bytes = fread(data_packet.P, 1, NUMBER_BYTES_EACH_PACKER, imagem);
-	printf("Size of file:%d\n", read_n_bytes);
+	
+	//printf("Size of file:%d\n", read_n_bytes);
 	if(read_n_bytes != NUMBER_BYTES_EACH_PACKER){
 		
 		data_packet.L2 = read_n_bytes >> 8;
 		data_packet.L1 = (unsigned char)read_n_bytes;
 	}
 	
+	int i;
+	for(i=0; i < read_n_bytes; i++){
+		printf("%x ",data_packet.P[i]);
+	}
+
 }
 
 int llwrite(int fd) {
 
-	send_control_packet(1, R1 | RR);
+	unsigned char indice_trama = 0;
 
-	unsigned char indice_trama = 1;
+	send_control_packet(1, R1 | RR, indice_trama);
+
+	indice_trama = 1;
 
 	unsigned char trama_informacao[5] = {FLAG, A};
 	trama_informacao[4] = FLAG;
@@ -388,16 +399,14 @@ int llwrite(int fd) {
 		int data_length = (data_packet.L2 << 8) + data_packet.L1;
 
 		file_size_inc+=data_length;
-		printf("%ld %ld\n", file_size_inc, control_packet.V1);
+		//printf("::::::::::::::::::::%x:::::::::::::\n", indice_trama);
 
 		unsigned char bcc2 = 0x00;
 
-		bcc2 = bcc2 ^ data_packet.C;
-		bcc2 = bcc2 ^ data_packet.N;
-		bcc2 = bcc2 ^ data_packet.L2;
-		bcc2 = bcc2 ^ data_packet.L1;
-		bcc2 = bcc2 ^ data_packet.C;
+		bcc2 = data_packet.C ^ data_packet.N ^ data_packet.L2 ^ data_packet.L1;
 	
+		if(data_length!=NUMBER_BYTES_EACH_PACKER)
+			printf("->>>>%d\n",data_length);
 		for(i = 0; i< data_length; i++)
 			bcc2 = bcc2 ^ data_packet.P[i];
 		
@@ -419,8 +428,12 @@ int llwrite(int fd) {
 			write(fd, &data_packet.L1, 1);
 
 			int indx;
-			for(indx = 0; indx < size_stuffed; indx++){
-				write(fd, (stuffed_data + indx), 1);
+			//for(indx = 0; indx < size_stuffed; indx++){
+			//	write(fd, (stuffed_data + indx), 1);
+			//}
+
+			for(indx = 0; indx < data_length; indx++){
+				write(fd, (data_packet.P + indx), 1);
 			}
 
 			write(fd, &bcc2, 1);
@@ -438,10 +451,12 @@ int llwrite(int fd) {
 			exit(2);
 		}
 
+		
 		indice_trama=!indice_trama;
+		
 	}
 
-	send_control_packet(0, (indice_trama ? R0:R1) | RR);	
+	send_control_packet(0, (indice_trama ? R0:R1) | RR, indice_trama);	
 }
 
 
@@ -535,7 +550,7 @@ int main(int argc, char** argv){
       exit(-1);
     }
 
-    printf("New termios structure set\n");
+    //printf("New termios structure set\n");
 
 
     (void) signal(SIGALRM, atende);  // instala  rotina que atende interrupcao
