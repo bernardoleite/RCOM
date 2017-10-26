@@ -312,13 +312,15 @@ void llread(int fd) {
 	while(1) {
 		unsigned char td;
 		unsigned char* buf = (unsigned char*)malloc(1);
-	  	int n = 1, i = 0, x = 0;
+	  	int n = 0, i = 0, x = 0;
 		int res;
 		state = START;
 		while(state != STOP) {
 			res = read(fd, &td, 1);
+			printf("TD: %x ",td);
 			maquinaEstadosTransferencia(td, buf,&n);
-			buf = (unsigned char *)realloc(buf,n);
+			buf = (unsigned char *)realloc(buf,n +1);
+			printf("BUF: %x ", buf[n])
 		}
 
 		if(buf[2] == CDISC) {
