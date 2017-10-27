@@ -47,11 +47,16 @@ enum State state = START;
 int fd, conta, flag;
 FILE *imagem;
 
+
+//////////ELIMNAR
+FILE *log_;
+//////////ELIMNAR
+
 struct Control_packet{
 	unsigned char C;
 	unsigned char T1;
 	unsigned char L1;
-	long long int V1;
+	unsigned int V1;
 	unsigned char T2;
 	unsigned char L2;
 	char *V2;
@@ -255,30 +260,30 @@ void llclose(){
 	sendUA(&fd);
 }
 
-int stuffing(int size, char* in, char* out) {
-	int n = 0;
+int stuffing(int bufSize, unsigned char** buf) {
+	int newBufSize = bufSize;
+	
 	int i;
-	for(i = 0; i < size; i++) {
-		if(in[i] == 0x7e) {
-			out[n] = 0x7d;
-			n++;
-			out[n] = 0x5e;
-			n++;
+	for (i = 1; i < bufSize; i++)
+		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d)
+			newBufSize++;
+
+	*buf = (unsigned char*) realloc(*buf, newBufSize);
+
+	for (i = 1; i < bufSize; i++) {
+		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d) {
+			memmove(*buf + i + 1, *buf + i, bufSize - i);
+
+			bufSize++;
+
+			(*buf)[i] = 0x7d;
+			(*buf)[i + 1] ^= 0x20;
 		}
-		else if(in[i] == 0x7d) {
-			out[n] = 0x7d;
-			n++;
-			out[n] = 0x5d;
-			n++;
-		}			
-		else {
-			out[n] = in[i];
-			n++;
-		}
-			
 	}
-	return n;
+
+	return newBufSize;
 }
+
 
 unsigned char receive_feedback(unsigned char control_byte_expected){
 	char tmp[5];
@@ -307,30 +312,56 @@ void send_control_packet(unsigned char end_start, unsigned char control_byte_exp
 	int i;
 	do{
 		//printf("sending control packet\n");
-		unsigned char byte[6] = {FLAG, A, (indice_trama ? I1:I0), A^I0};
-		byte[4] = (end_start ? START_PACKET_CONTROL : END_PACKET_CONTROL);
-			
-		for(i = 0; i < 5; i++){
-			write(fd, &(byte[i]), 1);
-		}
+
+		unsigned char *byte = (unsigned char*)malloc(4);
+		unsigned char *control = (unsigned char*)malloc(9+control_packet.L2);
+		byte[0] = FLAG;
+		byte[1] = A;
+		byte[2] = (indice_trama ? I1:I0);
+		byte[3] = A^byte[2];
 
 
-		write(fd, &control_packet.T1, 1);
-		write(fd, &control_packet.L1, 1);
-		write(fd, &control_packet.V1, 1);
-		printf("--size-->>>%ld",control_packet.V1);
-		write(fd, &control_packet.T2, 1);
-		write(fd, &control_packet.L2, 1);
+		control[0] = (end_start ? START_PACKET_CONTROL : END_PACKET_CONTROL);
+		control[1]	= control_packet.T1;
+		control[2]	= control_packet.L1;
+				
+		control[3]	= ((char*)&control_packet.V1)[3];
+		control[4]	= ((char*)&control_packet.V1)[2];
+		control[5]	= ((char*)&control_packet.V1)[1];
+		control[6] = ((char*)&control_packet.V1)[0];
 
-		unsigned char bcc2 = 0x00;
-		bcc2 = control_packet.C ^ control_packet.T1 ^ control_packet.L1 ^ control_packet.V1 ^ control_packet.T2 ^ control_packet.L2;
+		control[7]	= control_packet.T2;
+		control[8]	= control_packet.L2;
+
+		unsigned char bcc2 = 0;
+
 
 		//stuffing
 		for(i = 0; i < control_packet.L2; i++){
-			write(fd, &control_packet.V2[i], 1);
-			bcc2 = bcc2 ^ control_packet.V2[i];
+			control[9+i] = control_packet.V2[i];
+
 		}
-		//printf("BCC2: %x\n",bcc2);
+		int size = 9+i;
+		for(i = 0; i < size; i++) {
+			bcc2 ^= control[i];
+
+		}
+
+
+		int size_stuffed = stuffing(size, &control);
+
+
+		for(i = 0; i < 4; i++) {
+			write(fd, &(byte[i]), 1);
+
+		}		
+
+		for(i = 0; i < size_stuffed; i++) {
+			write(fd, &(control[i]), 1);
+
+		}	
+
+
 		write(fd, &bcc2, 1);
 		write(fd, &(byte[0]), 1);
 
@@ -354,6 +385,9 @@ void read_data_into_packet(){
 
 	int read_n_bytes = fread(data_packet.P, 1, NUMBER_BYTES_EACH_PACKER, imagem);
 	
+	fwrite(data_packet.P,1,10,log_);
+
+
 	//printf("Size of file:%d\n", read_n_bytes);
 	if(read_n_bytes != NUMBER_BYTES_EACH_PACKER){
 		
@@ -363,7 +397,7 @@ void read_data_into_packet(){
 	
 	int i;
 	for(i=0; i < read_n_bytes; i++){
-		printf("%x ",data_packet.P[i]);
+		//printf("%x ",data_packet.P[i]);
 	}
 
 }
@@ -400,44 +434,55 @@ int llwrite(int fd) {
 		file_size_inc+=data_length;
 		//printf("::::::::::::::::::::%x:::::::::::::\n", indice_trama);
 
-		unsigned char bcc2 = 0x00;
+		unsigned char* data = (unsigned char *)malloc(6 + data_length);
+		data[0] = data_packet.C;
+		data[1] = data_packet.N;
+		data[2] = data_packet.L2;
+		data[3] = data_packet.L1;
 
-		bcc2 = data_packet.C ^ data_packet.N ^ data_packet.L2 ^ data_packet.L1;
-	
-		if(data_length!=NUMBER_BYTES_EACH_PACKER)
-			printf("->>>>%d\n",data_length);
-		for(i = 0; i< data_length; i++)
-			bcc2 = bcc2 ^ data_packet.P[i];
-		
-		
-		unsigned char stuffed_data[NUMBER_BYTES_EACH_PACKER+2];
-		int size_stuffed = stuffing(data_length, data_packet.P, stuffed_data);
+		unsigned char bcc2 = 0;
+		for(i=0; i < 4; i++){
+			bcc2 ^= data[i];		
+			//printf(" %x ",data[i]);	
+		}
+
+		for(i = 0; i < data_length; i++) {
+			data[4 + i] = data_packet.P[i];
+			bcc2 ^= data[4 + i];
+			printf("%x",data[4+i]);		
+			//printf("Dados: %x ",(data[i+4]));	
+		}	
+		int x;
+		data[i+4] = bcc2;
+			for(x = 0; x < i + 4; x++){
+				write(fd, &data[x], 1);
+
+			}
+		int size_stuffed = stuffing(data_length + 5, &data);
 
 		acknowledged = 0;
 		conta = 0;
 		do{		
+
+
 			//send trama header
 			for(i = 0; i < 4; i++){
 				write(fd, &trama_informacao[i], 1);
+
 			}
 	
-			write(fd, &data_packet.C, 1);
-			write(fd, &data_packet.N, 1);
-			write(fd, &data_packet.L2, 1);
-			write(fd, &data_packet.L1, 1);
 
 			int indx;
-			//for(indx = 0; indx < size_stuffed; indx++){
-			//	write(fd, (stuffed_data + indx), 1);
-			//}
-
-			for(indx = 0; indx < data_length; indx++){
-				write(fd, (data_packet.P + indx), 1);
+			for(indx = 0; indx < size_stuffed; indx++){
+				write(fd, &data[indx], 1);
 			}
 
-			write(fd, &bcc2, 1);
 
-			write(fd, &trama_informacao[4], 1); //FLAG
+
+
+			//printf("FLAG: %x \n\n",(trama_informacao[i]));
+		
+			write(fd, &trama_informacao[4], 1);
 				
 			alarm(3);		
 			unsigned char control_byte_expected = ((indice_trama ? R0:R1) | RR);
@@ -462,7 +507,7 @@ int llwrite(int fd) {
 void setup_data_packet(){
 
 	data_packet.N = 0;
-	data_packet.C = 0x00;
+	data_packet.C = 0x01;
 	data_packet.L2 = (unsigned char)(NUMBER_BYTES_EACH_PACKER >> 8);
 	data_packet.L1 = (unsigned char)NUMBER_BYTES_EACH_PACKER;
 
@@ -555,10 +600,15 @@ int main(int argc, char** argv){
     (void) signal(SIGALRM, atende);  // instala  rotina que atende interrupcao
 
     imagem = fopen(argv[2], "rb");
+
+	log_ = fopen("log.txt", "w");
+
+	
     if(!imagem){
 	printf("Image could not be found!\n");
         exit(3);
     }
+
 
     setup_control_packet(argv[2]);
     setup_data_packet();
@@ -573,9 +623,9 @@ int main(int argc, char** argv){
     free(data_packet.P);
     free(control_packet.V2);
 
+	fclose(log_);
 
-
-    printf("Vou terminar.\n");
+  //  printf("Vou terminar.\n");
 
 
 
