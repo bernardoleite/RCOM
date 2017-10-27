@@ -249,22 +249,22 @@ void maquinaEstadosTransferencia(unsigned char td, char buf[], int* n) {
 	}
 }
 
-void destuffing(char *in, char *out, int size) {
+int destuffing(unsigned char **buf, int bufSize) {
 
-  int n = 0, i;
-  out[n] = in[0];
-  n++;
-  for(i = 1; i < size; i++) {
-    if(in[i] == 0x5e && in[i-1] == 0x7d)
-      out[n - 1] = 0x7e;
-    else if(in[i] == 0x5d && in[i-1] == 0x7d)
-      continue;
-    else {
-      out[n] = in[i];
-      n++;
-    }
-  }
+	int i;
+	for (i = 1; i < bufSize - 1; ++i) {
+		if ((*buf)[i] == 0x7d) {
+			memmove(*buf + i, *buf + i + 1, bufSize - i - 1);
 
+			bufSize--;
+
+			(*buf)[i] ^= 0x20;
+		}
+	}
+
+	*buf = (unsigned char*) realloc(*buf, bufSize);
+
+	return bufSize;
 }
 
 void sendData(char* data) {
@@ -284,7 +284,9 @@ void sendData(char* data) {
 
 			exit(0);
 		}		
+		printf("13HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");		
 		free(filename);
+		printf("14HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");		
 	}
 	if(data[0] == 0x03) {
 		fclose(imagem);
@@ -299,9 +301,9 @@ void sendData(char* data) {
 		}
 
 		fwrite(packet, sizeof(packet), 1, imagem);
-
+		printf("15HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");		
 		free(packet);
-
+		printf("16HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");		
 	}
 }
 
@@ -315,31 +317,35 @@ void llread(int fd) {
 	  	int n = 0, i = 0, x = 0;
 		int res;
 		state = START;
+		printf("\n");
+		printf("\n");
 		while(state != STOP) {
 			res = read(fd, &td, 1);
-			printf("TD: %x ",td);
+			if(res == 0)
+				continue;
 			maquinaEstadosTransferencia(td, buf,&n);
+			printf("TD: %x  BUF: %x",td,buf[n-1]);
 			buf = (unsigned char *)realloc(buf,n +1);
-			printf("BUF: %x ", buf[n])
-		}
 
+		}
+		printf("\n");
 		if(buf[2] == CDISC) {
 			return;
 		}
-		printf("n= %d\n",n);
+
 		unsigned char* dados = (unsigned char *)malloc(1);
-		
-		for(i = 0; i < 4; i++) {
-			printf("BUFHEAD: %x ",buf[i]);
-		}
-		printf("\n");
+		printf("17HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");		
+		printf("\nFLAG: %x A: %x C: %x BCC1: %x \n",buf[0],buf[1],buf[2],buf[3]);
 	 	for(i = 4; i < n - 2; i++) {
 			dados[x] = buf[i];
-			printf("DADOS: %x, BUF: %x ",dados[x],buf[i]); 
+
+			printf("Dados: %x BUFFER: %x ",dados[x],buf[i]);
 			x++;
 			dados = (unsigned char *)realloc(dados, x);
 			
 	 	}
+		printf("17HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+		printf("\nBCC2: %x  FLAG: %x\n",buf[n-2],buf[n-1]);
 		printf("\n");
 		if((buf[1]^buf[2]) != buf[3]) {
 
@@ -347,10 +353,10 @@ void llread(int fd) {
 			
 		}
 		
-
-		//char* dadosd = (char *)malloc(x);
-		//destuffing(dados,dadosd, x);
-
+		printf("18HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
+		
+		x = destuffing(&dados, x);
+		printf("19HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 			if(Ns != buf[2])
 				novatrama = 0;
 			else {
@@ -366,17 +372,15 @@ void llread(int fd) {
 		}	
 
 		printf("NOVATRAMA: %d\n",novatrama);
-		unsigned char bcc = 0x00;
-		printf("X= %d",x);
+		unsigned char bcc = 0;
+		printf("\nN= %d   X= %d\n",n,x);
 		for(i = 0; i  < x ; i++) {
 			bcc = (bcc^dados[i]);
-
+			printf("DADOS::: %x ",dados[i]);
 		}
-
+		printf("\n");
 
 		if(bcc == buf[n - 2] && novatrama == 1) {
-		printf("\n123132132!!!!!!!!BCCCalculado: %d\n",bcc);
-		printf("\n123132132!!!!!!!!BCC: %d\n",buf[n-2]);
 			sendRR(&fd, Nr);
 			sendData(dados);
 
@@ -385,16 +389,13 @@ void llread(int fd) {
 		printf("\n!!!!!!!!BCCCalculado: %d   123213442334\n",bcc);
 		printf("\n!!!!!!!!BCC: %d   123213442334\n",buf[n-2]);
 			sendRR(&fd, Nr);
-
+			sendData(dados);
 		}
 		else if(bcc != buf[n - 2] && novatrama == 1) {
 		printf("\n!!!!!!!!BCCCalculado: %d\n",bcc);
 		printf("\n!!!!!!!!BCC: %d\n",buf[n-2]);
 		
-			for(i = 0; i < 20; i++) {
-				printf("%x ",dados[i]);
-			}
-			printf("\n");
+
 			sendRej(&fd, Nr);
 		}
 		else if(bcc != buf[n - 2] && novatrama == 0) {
@@ -407,6 +408,7 @@ void llread(int fd) {
 		n = 0;
 		free(buf);
 		free(dados);
+		printf("20HERE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!\n");
 	}
 }
 
@@ -500,7 +502,7 @@ int main(int argc, char** argv)
 		//exit(0);
 	//}
 	llread(fd);
-
+	fclose(imagem);
 	llclose(fd);
   /*
     O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar
