@@ -255,30 +255,30 @@ void llclose(){
 	sendUA(&fd);
 }
 
-int stuffing(int size, char* in, char* out) {
-	int n = 0;
+int stuffing(int bufSize, char** buf) {
+	int newBufSize = bufSize;
+
 	int i;
-	for(i = 0; i < size; i++) {
-		if(in[i] == 0x7e) {
-			out[n] = 0x7d;
-			n++;
-			out[n] = 0x5e;
-			n++;
+	for (i = 1; i < bufSize - 1; i++)
+		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d)
+			newBufSize++;
+
+	*buf = (unsigned char*) realloc(*buf, newBufSize);
+
+	for (i = 1; i < bufSize - 1; i++) {
+		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d) {
+			memmove(*buf + i + 1, *buf + i, bufSize - i);
+
+			bufSize++;
+
+			(*buf)[i] = 0x7d;
+			(*buf)[i + 1] ^= 0x20;
 		}
-		else if(in[i] == 0x7d) {
-			out[n] = 0x7d;
-			n++;
-			out[n] = 0x5d;
-			n++;
-		}			
-		else {
-			out[n] = in[i];
-			n++;
-		}
-			
 	}
-	return n;
+
+	return newBufSize;
 }
+
 
 unsigned char receive_feedback(unsigned char control_byte_expected){
 	char tmp[5];
@@ -312,14 +312,14 @@ void send_control_packet(unsigned char end_start, unsigned char control_byte_exp
 			
 		for(i = 0; i < 5; i++){
 			write(fd, &(byte[i]), 1);
-			printf("HEAD: %x ", byte[i]);
+			//printf("HEAD: %x ", byte[i]);
 		}
 
 
 		write(fd, &control_packet.T1, 1);
 		write(fd, &control_packet.L1, 1);
 		write(fd, &control_packet.V1, 1);
-		printf("--size-->>>%ld",control_packet.V1);
+		//printf("--size-->>>%ld",control_packet.V1);
 		write(fd, &control_packet.T2, 1);
 		write(fd, &control_packet.L2, 1);
 
@@ -412,7 +412,7 @@ int llwrite(int fd) {
 		
 		
 		unsigned char stuffed_data[NUMBER_BYTES_EACH_PACKER+2];
-		int size_stuffed = stuffing(data_length, data_packet.P, stuffed_data);
+		int size_stuffed = stuffing(data_length, &data_packet.P);
 
 		acknowledged = 0;
 		conta = 0;
@@ -428,14 +428,16 @@ int llwrite(int fd) {
 			write(fd, &data_packet.L1, 1);
 
 			int indx;
-			//for(indx = 0; indx < size_stuffed; indx++){
-			//	write(fd, (stuffed_data + indx), 1);
-			//}
-
-			for(indx = 0; indx < data_length; indx++){
+			for(indx = 0; indx < size_stuffed; indx++){
 				write(fd, (data_packet.P + indx), 1);
+
 			}
 
+			for(indx = 0; indx < data_length; indx++){
+				//write(fd, (data_packet.P + indx), 1);
+				printf("Dados: %x ",*(data_packet.P + indx));			
+			}
+			printf("\n\n");
 			write(fd, &bcc2, 1);
 
 			write(fd, &trama_informacao[4], 1); //FLAG
