@@ -5,7 +5,7 @@ COMPILER_TYPE = -std = gnu99
 CC = gcc
 
 PROG = main
-SRCS = writenoncanonical.c
+SRCS = noncanonical.c
 
 CFLAGS = 
 
@@ -16,4 +16,4 @@ clean:
 	rm -f program
 	rm -f .depend
 	rm -f *.d
-	rm -f *.o
+rm -f *.o

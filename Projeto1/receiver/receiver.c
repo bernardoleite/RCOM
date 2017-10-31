@@ -16,6 +16,7 @@ Alguma Documentaçao
 #include <unistd.h>
 #include <signal.h>
 #include <string.h>
+#include "receiver.h"
 
 #define BAUDRATE B38400
 #define MODEMDEVICE "/dev/ttyS1"
@@ -48,6 +49,7 @@ FILE* imagem;
 static int set_index;
 
 
+//data_link_layer
 void sendUA(int *fd){
 	unsigned char set[5];
 tcflush(*fd, TCOFLUSH);
@@ -62,6 +64,7 @@ write (*fd, set, 5);
 
 }
 
+//data_link_layer
 void sendDisc(int *fd){
 	unsigned char set[5];
   tcflush(*fd, TCOFLUSH);
@@ -76,6 +79,7 @@ void sendDisc(int *fd){
 
 }
 
+//data_link_layer;
 void sendRR(int *fd,int Nr){
 	unsigned char set[5];
   tcflush(*fd, TCOFLUSH);
@@ -93,6 +97,7 @@ void sendRR(int *fd,int Nr){
 
 }
 
+//data_link_layer
 void sendRej(int *fd, int Nr){
 	unsigned char set[5];
   tcflush(*fd, TCOFLUSH);
@@ -109,6 +114,8 @@ void sendRej(int *fd, int Nr){
   write (*fd, set, 5);
 
 }
+
+//receiver
 void maquinaEstados(unsigned char tmp, char buf[], unsigned char byteControl) {
 
 		switch(state) {
@@ -166,14 +173,19 @@ void maquinaEstados(unsigned char tmp, char buf[], unsigned char byteControl) {
 
 }
 
+//application
 int llopen(int fd){
 	state = START;
 	unsigned char set;
 	char buf[5];
+
+
 	while(state!= STOP){
 
 		read(fd, &set, 1);
 		maquinaEstados(set,buf,CSET);
+		//printf("SET: %x  BUF: %x",set,buf[state]);
+
 	}
 	if(buf[1]^buf[2] == A^CSET) {
 		sendUA(&fd);
@@ -183,6 +195,7 @@ int llopen(int fd){
 		return 0;
 }
 
+//receiver
 void maquinaEstadosTransferencia(unsigned char td, char buf[], int* n) {
 
 	switch(state) {
@@ -249,62 +262,76 @@ void maquinaEstadosTransferencia(unsigned char td, char buf[], int* n) {
 	}
 }
 
-void destuffing(char *in, char *out, int size) {
 
-  int n = 0, i;
-  out[n] = in[0];
-  n++;
-  for(i = 1; i < size; i++) {
-    if(in[i] == 0x5e && in[i-1] == 0x7d)
-      out[n - 1] = 0x7e;
-    else if(in[i] == 0x5d && in[i-1] == 0x7d)
-      continue;
-    else {
-      out[n] = in[i];
-      n++;
-    }
-  }
+//data_link_layer
+int destuffing(unsigned char **buf, int bufSize) {
 
+	int i;
+	for (i = 1; i < bufSize - 1; ++i) {
+		if ((*buf)[i] == 0x7d) {
+			memmove(*buf + i, *buf + i + 1, bufSize - i - 1);
+
+			bufSize--;
+
+			(*buf)[i] ^= 0x20;
+		}
+	}
+
+	*buf = (unsigned char*) realloc(*buf, bufSize);
+
+	return bufSize;
 }
 
-void sendData(char* data) {
+//receiver
+void treatData(char* data) {
 
 	int i;
 	
-	printf("\n");
+
 	if(data[0] == 0x02) {
 
-		char* filename = (char*) malloc(data[5]);
-		for(i = 0; i < data[5]; i++) {
-			filename[i] = data[6 + i];
-
+		char* filename = (char*) malloc(data[8] + 1);
+		for(i = 0; i < data[8]; i++) {
+			filename[i] = data[9 + i];
+                        //printf("%c",data[9+i]);
 		}
+		//printf("\n");
+
 		imagem = fopen(filename,"wb");
 		if(imagem == NULL) {
 
 			exit(0);
 		}		
+
 		free(filename);
-	}
-	if(data[0] == 0x03) {
-		fclose(imagem);
 
-	}
-	else if(data[0] == 0x00 || data[0] == 0x01) {
-
-		char* packet = (char *) malloc((data[2]*256) + data[3]);
-		for(i = 0; i < ((data[2]*256) + data[3]); i++) {
-			packet[0] = data[4 + i];
-
+	}else if(data[0] == 0x03) {
+			fclose(imagem);
+					char* filename = (char*) malloc(data[8] + 1);
+			for(i = 0; i < data[8]; i++) {
+				filename[i] = data[9 + i];
+		                    //printf("%c",data[9+i]);
+			}
+			//printf("\n");
 		}
+		else if( data[0] == 0x01) {
 
-		fwrite(packet, sizeof(packet), 1, imagem);
+			char* packet = (char *) malloc((data[2]*256) + data[3]);
+			for(i = 0; i < ((data[2]*256) + data[3]); i++) {
+				packet[i] = data[4 + i];
 
+			}
+
+
+		fwrite(packet, 1, ((data[2]*256) + data[3]), imagem);
 		free(packet);
 
-	}
+	}else
+		printf("Something wrong sending data\n");
 }
 
+
+//application
 void llread(int fd) {
 	
 	int times = 0, novatrama = 1;
@@ -312,43 +339,52 @@ void llread(int fd) {
 	while(1) {
 		unsigned char td;
 		unsigned char* buf = (unsigned char*)malloc(1);
-	  	int n = 1, i = 0, x = 0;
+	  	int n = 0, i = 0, x = 0;
 		int res;
 		state = START;
+		//printf("\n");
+		//printf("\n");
 		while(state != STOP) {
 			res = read(fd, &td, 1);
+			if(res == 0)
+				continue;
 			maquinaEstadosTransferencia(td, buf,&n);
-			buf = (unsigned char *)realloc(buf,n);
-		}
+			//printf("TD: %x  BUF: %x N:%d\n",td,buf[n-1],n);
+			buf = (unsigned char *)realloc(buf,n +1);
 
+		}
+		//printf("\n\n");
 		if(buf[2] == CDISC) {
 			return;
 		}
-		printf("n= %d\n",n);
+
 		unsigned char* dados = (unsigned char *)malloc(1);
-		
-		for(i = 0; i < 4; i++) {
-			printf("BUFHEAD: %x ",buf[i]);
-		}
-		printf("\n");
-	 	for(i = 4; i < n - 2; i++) {
+
+		//printf("\nFLAG: %x A: %x C: %x BCC1: %x \n",buf[0],buf[1],buf[2],buf[3]);
+	 	for(i = 4; i < n - 1; i++) {
 			dados[x] = buf[i];
-			printf("DADOS: %x, BUF: %x ",dados[x],buf[i]); 
+
 			x++;
-			dados = (unsigned char *)realloc(dados, x);
+			dados = (unsigned char *)realloc(dados, x + 1);
 			
 	 	}
-		printf("\n");
+
 		if((buf[1]^buf[2]) != buf[3]) {
 
-			printf("Error in llread Head BCC\n");
+			//printf("Error in llread Head BCC\n");
 			
 		}
 		
 
-		//char* dadosd = (char *)malloc(x);
-		//destuffing(dados,dadosd, x);
+		//printf("X: %d\n",x);
+		
+		x = destuffing(&dados, x);
 
+
+                //printf("\nBCC2: %x  FLAG: %x\n",dados[x-1],buf[n-1]);
+		//printf("\n");
+		
+                
 			if(Ns != buf[2])
 				novatrama = 0;
 			else {
@@ -363,54 +399,59 @@ void llread(int fd) {
 			}
 		}	
 
-		printf("NOVATRAMA: %d\n",novatrama);
-		unsigned char bcc = 0x00;
-		printf("X= %d",x);
-		for(i = 0; i  < x ; i++) {
+                
+                
+		//printf("NOVATRAMA: %d\n",novatrama);
+		unsigned char bcc = 0;
+
+		for(i = 0; i  < x - 1; i++) {
+		          
+			//printf(" >>%x<< ",dados[i]);
 			bcc = (bcc^dados[i]);
-
+			//printf("I= %d DADOS::: %x \n",i,dados[i]);
+			
 		}
-
-
-		if(bcc == buf[n - 2] && novatrama == 1) {
-		printf("\n123132132!!!!!!!!BCCCalculado: %d\n",bcc);
-		printf("\n123132132!!!!!!!!BCC: %d\n",buf[n-2]);
+		//printf("\n");
+		//printf("%x = %x\n",bcc,dados[x-1]);
+		if(bcc == dados[x-1] && novatrama == 1) {
 			sendRR(&fd, Nr);
-			sendData(dados);
-
+			treatData(dados);
 		}
-		else if(bcc == buf[n - 2] && novatrama == 0) {
-		printf("\n!!!!!!!!BCCCalculado: %d   123213442334\n",bcc);
-		printf("\n!!!!!!!!BCC: %d   123213442334\n",buf[n-2]);
+		else if(bcc == dados[x-1] && novatrama == 0) {
+		//printf("\n1!!!!!!!!BCCCalculado: %x   123213442334\n",bcc);
+		//printf("\n1!!!!!!!!BCC: %x   123213442334\n",buf[n-2]);
 			sendRR(&fd, Nr);
-
+			fseek(imagem,-((dados[2]*256) + dados[3]),SEEK_CUR);
+			treatData(dados);
 		}
-		else if(bcc != buf[n - 2] && novatrama == 1) {
-		printf("\n!!!!!!!!BCCCalculado: %d\n",bcc);
-		printf("\n!!!!!!!!BCC: %d\n",buf[n-2]);
-		
-			for(i = 0; i < 20; i++) {
-				printf("%x ",dados[i]);
-			}
-			printf("\n");
+		else if(bcc != dados[x-1] && novatrama == 1) {
+		//printf("\n2!!!!!!!!BCCCalculado: %x\n",bcc);
+		//printf("\n2!!!!!!!!BCC: %x\n",buf[n-2]);
+
 			sendRej(&fd, Nr);
+			printf("bcc!");
 		}
-		else if(bcc != buf[n - 2] && novatrama == 0) {
-		printf("\n!!!!!!!!BCCCalculado: %d\n",bcc);
-		printf("\n!!!!!!!!BCC: %d\n",buf[n-2]);
-			sendRR(&fd, Nr);
+		else if(bcc != dados[x-1] && novatrama == 0) {
+		//printf("\n3!!!!!!!!BCCCalculado: %x\n",bcc);
+		//printf("\n3!!!!!!!!BCC: %x\n",buf[n-2]);
+			sendRej(&fd, Nr);
+			printf("bcc!");
 
 		}
+		else
+			printf("error");
 		x = 0;
 		n = 0;
 		free(buf);
 		free(dados);
+		
+
 	}
 }
 
 
 
-
+//application
 void llclose(int fd) {
 	state = START;
 	sendDisc(&fd);
@@ -420,11 +461,12 @@ void llclose(int fd) {
 		read(fd, &rec, 1);
 		maquinaEstados(rec, buf,CUA);
 	}
-	/*if(buf[1]^buf[2] == A^CUA) {
-		printf("Terminação Concluída\n");
+	if(buf[1]^buf[2] == A^CUA) {
+		//printf("Terminação Concluída\n");
 	}
-	else
-		printf("Terminação Incorreta\n");*/
+	else{
+		//printf("Terminação Incorreta\n");
+	}
 }
 
 
@@ -471,7 +513,6 @@ int main(int argc, char** argv)
     newtio.c_cc[VMIN]     = 0;   /* blocking read until 5 chars received */
 
 
-
   /*
     VTIME e VMIN devem ser alterados de forma a proteger com um temporizador a
     leitura do(s) próximo(s) caracter(es)
@@ -486,20 +527,22 @@ int main(int argc, char** argv)
       exit(-1);
     }
 
-    printf("New termios structure set\n");
+    //printf("New termios structure set\n");
 
-	llopen(fd);
-	//if(llopen(fd))
+/*Application*/
+	if(llopen(fd)){
 		//printf("Estabelecimento Concluído\n");
-
-	//else {
+        }
+	else {
 		//printf("Estabelecimento Incorreto\n");
-		//close(fd);
-		//exit(0);
-	//}
+		close(fd);
+		exit(0);
+	}
 	llread(fd);
 
 	llclose(fd);
+/*Application*/
+
   /*
     O ciclo FOR e as instruções seguintes devem ser alterados de modo a respeitar
     o indicado no guião

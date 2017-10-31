@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <string.h>
 #include <signal.h>
+#include "sender.h"
 
 #define BAUDRATE B38400
 #define MODEMDEVICE "/dev/ttyS1"
@@ -70,6 +71,58 @@ struct Data_packet{
 	unsigned char L1;
 	char *P; 
 }data_packet;
+
+
+//data_link_layer
+int stuffing(int bufSize, unsigned char** buf) {
+	int newBufSize = bufSize;
+	
+	int i;
+	for (i = 1; i < bufSize; i++)
+		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d)
+			newBufSize++;
+
+	*buf = (unsigned char*) realloc(*buf, newBufSize);
+
+	for (i = 1; i < bufSize; i++) {
+		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d) {
+			memmove(*buf + i + 1, *buf + i, bufSize - i);
+
+			bufSize++;
+
+			(*buf)[i] = 0x7d;
+			(*buf)[i + 1] ^= 0x20;
+		}
+	}
+
+	return newBufSize;
+}
+
+//application
+void read_data_into_packet(){
+	static char sequence_number = 0; //??????? 0 1 0 1 0 1 2 3 4
+	data_packet.N = ++sequence_number;
+	if(sequence_number == 255)	
+		sequence_number = 0;
+
+	int read_n_bytes = fread(data_packet.P, 1, NUMBER_BYTES_EACH_PACKER, imagem);
+	
+	fwrite(data_packet.P,1,10,log_);
+
+
+	//printf("Size of file:%d\n", read_n_bytes);
+	if(read_n_bytes != NUMBER_BYTES_EACH_PACKER){
+		
+		data_packet.L2 = read_n_bytes >> 8;
+		data_packet.L1 = (unsigned char)read_n_bytes;
+	}
+	
+	int i;
+	for(i=0; i < read_n_bytes; i++){
+		//printf("%x ",data_packet.P[i]);
+	}
+
+}
 
 void maquinaEstados(unsigned char ua, char buf[], unsigned char byteControl)
 {
@@ -161,6 +214,43 @@ void sendSet(int *fd){
 	write (*fd, set, 5);
 }
 
+//data_link_layer
+void llopen(int fd) {
+		
+	conta=1;
+	flag = 1;
+	unsigned char ua;
+
+	char tmp[5];
+	unsigned char leave_while = 1;
+	while((conta <= MAX_TIMEOUTS) && leave_while) {			
+
+		if (flag){
+			alarm(3);
+			//printf("Envia set\n");
+			sendSet(&fd);
+			flag = 0;
+			tcflush(fd,TCIFLUSH);
+			state = START;
+			while ( state !=STOP && !flag){
+				int res = read(fd, &ua, 1);
+				if(res>0)
+					maquinaEstados(ua, tmp, CUA);
+				if(tmp[3] != tmp[1]^tmp[2])
+					continue;			
+			}
+			
+			if(state == STOP){
+				leave_while = 0;
+			}
+		}
+	}
+	if(state!=STOP){
+		exit(2);
+	}
+	printf("Established Connection.\n");
+}
+
 
 
 void sendDisc(int *fd){
@@ -191,31 +281,42 @@ void sendUA(int *fd){
 	write (*fd, ua, 5);
 }
 
+//data_link_layer
+void llclose(){
+	conta=1;
+	flag = 1;
+	char tmp[5];
+	while(conta <= MAX_TIMEOUTS) {			
 
+		if (flag){
+			alarm(3);
+			//printf("Envia disc\n");
+			sendDisc(&fd);
+			flag = 0;
+			tcflush(fd,TCIFLUSH);
 
-int stuffing(int bufSize, unsigned char** buf) {
-	int newBufSize = bufSize;
-	
-	int i;
-	for (i = 1; i < bufSize; i++)
-		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d)
-			newBufSize++;
+			state = START;
+			while ((state !=STOP) && !flag){
+				unsigned char disc;
+				int res = read(fd, &disc, 1);
+				if(res>0)
+					maquinaEstados(disc, tmp, CDISC);
+				if(tmp[3] != tmp[1]^tmp[2])
+					continue;			
+			}
 
-	*buf = (unsigned char*) realloc(*buf, newBufSize);
-
-	for (i = 1; i < bufSize; i++) {
-		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d) {
-			memmove(*buf + i + 1, *buf + i, bufSize - i);
-
-			bufSize++;
-
-			(*buf)[i] = 0x7d;
-			(*buf)[i + 1] ^= 0x20;
+			if(state == STOP)
+				break;
 		}
 	}
-
-	return newBufSize;
+	alarm(0);
+	if(state!=STOP){
+		exit(2);
+	}
+	sendUA(&fd);
+	printf("Disconnected.\n");
 }
+
 
 
 unsigned char receive_feedback(unsigned char control_byte_expected){
@@ -239,6 +340,30 @@ unsigned char receive_feedback(unsigned char control_byte_expected){
 	return 0;
 }
 
+//data_link_layer
+void WriteControlPacket(int size, unsigned char bcc2, unsigned char * control, unsigned char * byte){
+
+	int size_stuffed = stuffing(size, &control);
+
+	int i ;
+
+	for(i = 0; i < 4; i++) {
+		write(fd, &(byte[i]), 1);
+
+	}		
+
+	for(i = 0; i < size_stuffed; i++) {
+		write(fd, &(control[i]), 1);
+
+	}	
+
+
+	write(fd, &bcc2, 1);
+	write(fd, &(byte[0]), 1);
+}
+
+
+//application
 void send_control_packet(unsigned char end_start, unsigned char control_byte_expected, unsigned char indice_trama){
 	unsigned char acknowledged;
 	conta = 0;
@@ -248,6 +373,7 @@ void send_control_packet(unsigned char end_start, unsigned char control_byte_exp
 
 	unsigned char *byte = (unsigned char*)malloc(4);
 	unsigned char *control = (unsigned char*)malloc(9+control_packet.L2);
+	
 	byte[0] = FLAG;
 	byte[1] = A;
 	byte[2] = (indice_trama ? I1:I0);
@@ -270,7 +396,7 @@ void send_control_packet(unsigned char end_start, unsigned char control_byte_exp
 
 	do{
 
-		//stuffing
+		
 		for(i = 0; i < control_packet.L2; i++){
 			control[9+i] = control_packet.V2[i];
 
@@ -281,23 +407,8 @@ void send_control_packet(unsigned char end_start, unsigned char control_byte_exp
 
 		}
 
-
-		int size_stuffed = stuffing(size, &control);
-
-
-		for(i = 0; i < 4; i++) {
-			write(fd, &(byte[i]), 1);
-
-		}		
-
-		for(i = 0; i < size_stuffed; i++) {
-			write(fd, &(control[i]), 1);
-
-		}	
-
-
-		write(fd, &bcc2, 1);
-		write(fd, &(byte[0]), 1);
+		//data_link_layer
+		WriteControlPacket(size, bcc2, control, byte);
 
 
 		alarm(3);
@@ -313,33 +424,105 @@ void send_control_packet(unsigned char end_start, unsigned char control_byte_exp
 	}
 }
 
-
-void read_data_into_packet(){
-	static char sequence_number = 0; //??????? 0 1 0 1 0 1 2 3 4
-	data_packet.N = ++sequence_number;
-	if(sequence_number == 255)	
-		sequence_number = 0;
-
-	int read_n_bytes = fread(data_packet.P, 1, NUMBER_BYTES_EACH_PACKER, imagem);
+//data_link_layer
+void writeData(int data_length, unsigned char * trama_informacao, unsigned char* data){
 	
-	fwrite(data_packet.P,1,10,log_);
 
+	int size_stuffed = stuffing(data_length + 5, &data);
 
-	//printf("Size of file:%d\n", read_n_bytes);
-	if(read_n_bytes != NUMBER_BYTES_EACH_PACKER){
-		
-		data_packet.L2 = read_n_bytes >> 8;
-		data_packet.L1 = (unsigned char)read_n_bytes;
-	}
-	
-	int i;
-	for(i=0; i < read_n_bytes; i++){
-		//printf("%x ",data_packet.P[i]);
+	//send trama header
+	int i,indx;
+	for(i = 0; i < 4; i++){
+		write(fd, &trama_informacao[i], 1);
+
 	}
 
+	for(indx = 0; indx < size_stuffed; indx++){
+		write(fd, &data[indx], 1);
+	}
+
+	write(fd, &trama_informacao[4], 1);
 }
 
+//application
+int llwrite(int fd) {
 
+	unsigned char indice_trama = 0;
+
+	//application
+	send_control_packet(1, R1 | RR, indice_trama);
+
+	indice_trama = 1;
+
+	unsigned char trama_informacao[5] = {FLAG, A};
+	trama_informacao[4] = FLAG;
+
+	long long int file_size_inc = 0;
+
+	unsigned char acknowledged;
+	unsigned char count;
+	unsigned char * data;
+
+	while(control_packet.V1 > file_size_inc){
+
+		acknowledged = 0;
+		conta = 0;
+		do{		
+			if(indice_trama){
+			trama_informacao[2] = I1;
+			trama_informacao[3] = A^I1;
+		}else{
+			trama_informacao[2] = I0;
+			trama_informacao[3] = A^I0;
+		}
+
+		read_data_into_packet();
+
+		int i;
+		int data_length = (data_packet.L2 << 8) + data_packet.L1;
+
+		file_size_inc+=data_length;
+
+		data = (unsigned char *)malloc(6 + data_length);
+		data[0] = data_packet.C;
+		data[1] = data_packet.N;
+		data[2] = data_packet.L2;
+		data[3] = data_packet.L1;
+
+		unsigned char bcc2 = 0;
+		for(i=0; i < 4; i++){
+			bcc2 ^= data[i];			
+		}
+
+		for(i = 0; i < data_length; i++) {
+			data[4 + i] = data_packet.P[i];
+			bcc2 ^= data[4 + i];
+		}	
+		int x;
+		data[i+4] = bcc2;
+
+		//data_link_layer
+		writeData(data_length, trama_informacao, data);
+				
+		alarm(3);		
+		acknowledged = receive_feedback((indice_trama ? R0:R1) | RR);	
+		alarm(0);
+
+		}while(!acknowledged && (conta < MAX_TIMEOUTS));
+
+		if(!acknowledged){ //X REJ, Y Timeouts, X+Y = 3
+			exit(2);
+		}
+		
+		indice_trama=!indice_trama;
+		
+	}
+	
+	//application
+	send_control_packet(0, (indice_trama ? R0:R1) | RR, indice_trama);	
+}
+
+//application
 void setup_data_packet(){
 
 	data_packet.N = 0;
@@ -351,6 +534,7 @@ void setup_data_packet(){
 	
 }
 
+//application
 void setup_control_packet(char *argv){
 
 	long long int file_size;
@@ -445,7 +629,7 @@ int main(int argc, char** argv){
         exit(3);
     }
 
-
+/*Application*/
     setup_control_packet(argv[2]);
     setup_data_packet();
 
@@ -455,6 +639,8 @@ int main(int argc, char** argv){
     llwrite(fd);
 
     llclose(fd);
+/*Application*/
+
 
     free(data_packet.P);
     free(control_packet.V2);
