@@ -4,23 +4,6 @@
 
 FILE* imagem;
 
-int destuffing(unsigned char **buf, int bufSize) {
-
-	int i;
-	for (i = 1; i < bufSize - 1; ++i) {
-		if ((*buf)[i] == 0x7d) {
-			memmove(*buf + i, *buf + i + 1, bufSize - i - 1);
-
-			bufSize--;
-
-			(*buf)[i] ^= 0x20;
-		}
-	}
-
-	*buf = (unsigned char*) realloc(*buf, bufSize);
-
-	return bufSize;
-}
 
 void sendData(char* data) {
 

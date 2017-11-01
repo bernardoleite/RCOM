@@ -9,5 +9,6 @@ void sendRej(int *fd, int Nr);
 int llopen(int fd);
 void llread(int fd);
 void llclose(int fd);
+int destuffing(unsigned char **buf, int bufSize);
 
 #endif
