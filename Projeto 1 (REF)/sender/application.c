@@ -33,29 +33,6 @@ void read_data_into_packet(){
 	}
 }
 
-int stuffing(int bufSize, unsigned char** buf) {
-	int newBufSize = bufSize;
-	
-	int i;
-	for (i = 1; i < bufSize; i++)
-		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d)
-			newBufSize++;
-
-	*buf = (unsigned char*) realloc(*buf, newBufSize);
-
-	for (i = 1; i < bufSize; i++) {
-		if ((*buf)[i] == 0x7e || (*buf)[i] == 0x7d) {
-			memmove(*buf + i + 1, *buf + i, bufSize - i);
-
-			bufSize++;
-
-			(*buf)[i] = 0x7d;
-			(*buf)[i + 1] ^= 0x20;
-		}
-	}
-
-	return newBufSize;
-}
 
 void calculate_packet(unsigned char indice_trama, long long int *file_size_inc, unsigned char* trama_informacao, unsigned char* data){
 	if(indice_trama){
