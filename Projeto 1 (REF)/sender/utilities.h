@@ -41,7 +41,7 @@
 #define END_PACKET_CONTROL 0x03
 
 //configuration
-#define NUMBER_BYTES_EACH_PACKER 0x0a //0x80
+#define NUMBER_BYTES_EACH_PACKER 0x40 //0x80
 #define MAX_TIMEOUTS 3
 
 

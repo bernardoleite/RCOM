@@ -334,6 +334,7 @@ int llwrite(int fd) {
 
 		
 			write(fd, &trama_informacao[4], 1);
+
 				
 			alarm(3);	
 			acknowledged = receive_feedback((indice_trama ? R0:R1) | RR);	
