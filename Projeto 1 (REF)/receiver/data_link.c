@@ -246,9 +246,11 @@ void maquinaEstadosTransferencia(unsigned char td, char buf[], int* n) {
 	}
 }
 
+
 void llread(int fd) {
 	
-	int times = 0, novatrama = 1;
+	
+	int was_wrong = 0, novatrama = 1;
 	unsigned char Ns = 0x00, Nr = 0x40;
 	while(1) {
 		unsigned char td;
@@ -318,21 +320,23 @@ void llread(int fd) {
 	if(bcc == dados[x-1] && novatrama == 1) {
 		sendRR(&fd, Nr);
 		sendData(dados);
-
+		was_wrong = 0;
 	}
 	else if(bcc == dados[x-1] && novatrama == 0) {
-
 		sendRR(&fd, Nr);
-		fseek(imagem, -((dados[2]*256) + dados[3]), SEEK_CUR);
+		if(!was_wrong)
+			fseek(imagem, -((dados[2]*256) + dados[3]), SEEK_CUR);
 		sendData(dados);
+		was_wrong = 0;
 	}
 	else if(bcc != dados[x-1] && novatrama == 1) {
-
 		sendRej(&fd, Nr);
+		was_wrong = 1;
+		//sendData(dados);
 	}
 	else if(bcc != dados[x-1] && novatrama == 0) {
 		sendRej(&fd, Nr);
-
+		was_wrong = 1;
 	}
 	x = 0;
 	n = 0;

@@ -33,7 +33,7 @@ void sendData(char* data) {
 			filename[i] = data[9 + i];
 		}
 	}
-	else if(data[0] == 0x00 || data[0] == 0x01) {
+	else if(data[0] == 0x01) {
 
 		char* packet = (char *) malloc((data[2]*256) + data[3]);
 		for(i = 0; i < ((data[2]*256) + data[3]); i++) {
