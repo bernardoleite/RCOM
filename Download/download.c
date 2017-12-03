@@ -11,7 +11,25 @@
 #include <string.h>
 #include <termios.h>
 
+void read_Sock(FILE* fp, char* code) {
+	size_t bufsize = 32, c;
+	char* msg = (char *)malloc(bufsize * sizeof(char));
 
+	do {
+
+		msg = fgets(msg, 5, fp);
+			printf("%s\n",msg);
+	} while (!('1' <= msg[0] && msg[0] <= '5') || msg[3] != ' ');
+	printf("HERE\n");
+	printf("%s\n",msg);
+	if(strcmp(msg, code) != 0) {
+		fprintf(stderr,"usage: Error\n");
+		exit(1);	
+	}
+		msg = fgets(msg, 5, fp);
+	free(msg);
+
+}
 
 int main(int argc, char** argv) {
 
@@ -137,72 +155,57 @@ int main(int argc, char** argv) {
 	if(strlen(user) == 0) {
 		strcpy(user, "anonymous");
 		user[strlen(user)] = '\0';
-		strcpy(pass, " ");
+		strcpy(pass, "");
 		pass[strlen(pass)] = '\0';
 	}
-	printf("%s 0\n",user);
-	printf("%s 1\n",pass);
 
+	printf("%s\n",user);
 	char* write_user = malloc(strlen(user) + 1);
 	char* write_pass = malloc(strlen(pass) + 1);
 	printf("---------------\n");
-	sprintf(write_user, "%s\n", user);
-	sprintf(write_pass, "%s\n", pass);
+	sprintf(write_user, "%s\r\n", user);
+	sprintf(write_pass, "%s\r\n", pass);
 	write_user[strlen(write_user)] = '\0';
 	write_pass[strlen(write_pass)] = '\0';	
-	char* msg = malloc(4 * sizeof(char));
-	int i = 0;
-	for(i = 0; i < strlen(msg); i++) {
-		msg[i] = 0;
-	}
+
+
+
 	int nBytes = 0;
-	printf("%s 2\n",write_user);
-	printf("%s 3\n",write_pass);
-	tcflush(sockfd, TCIOFLUSH);
 
 
 	tcflush(sockfd, TCIOFLUSH);
-	do {
+	FILE* fp = fdopen(sockfd, "r");
+	read_Sock(fp, "220 ");		
 
-		read(sockfd, msg, 4);
-		printf("%s\n",msg);
-	} while(!(strcmp(msg, "220 ") == 0));
 
-	printf("%s 4\n",write_user);
-	printf("%s 5\n",write_pass);
-	if (nBytes = write(sockfd, write_user, strlen(write_user)) != strlen(write_user)) {
+	if ((nBytes = write(sockfd, write_user, strlen(write_user))) <= 0) {
+		fprintf(stderr,"usage: Number of Bytes Written wrong %d\n",nBytes);
+		exit(1);	
+	}
+	printf("Bytes send: %d\nInfo: %s\n", nBytes, write_user);
+
+	read_Sock(fp, "530 ");		
+
+
+	if ((nBytes = write(sockfd, write_pass, strlen(write_pass))) != strlen(write_pass)) {
 		fprintf(stderr,"usage: Number of Bytes Written wrong\n");
 		exit(1);	
 	}
 
-	do {
-
-		read(sockfd, msg, 4);
-		printf("%s\n",msg);
-	} while(!(strcmp(msg, "331 ") == 0));
+	read_Sock(fp, "230 ");	
+	
 	printf("HERE");
 
-	if (nBytes = write(sockfd, write_pass, strlen(write_pass)) != strlen(write_pass)) {
-		fprintf(stderr,"usage: Number of Bytes Written wrong\n");
-		exit(1);	
-	}
-
-	do {
-
-		read(sockfd, msg, 4);
-
-	} while(!(strcmp(msg, "230 ") == 0));
-
-	printf("HERE");
-	printf("%s\n",msg);
 	close(sockfd);	
 	
-	free(msg);
+
 	free(user);
 	free(pass);
+	free(write_user);
+	free(write_pass);
 	free(host);
 	free(path);
-
+	int i = 0;
 	for(i = 0; i < 3; i++) {
 		free(url_aux[i]);
 		free(url_aux_2[i]);
