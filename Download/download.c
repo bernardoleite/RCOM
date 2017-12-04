@@ -11,10 +11,14 @@
 #include <string.h>
 #include <termios.h>
 
-void read_Sock(FILE* fp, char* code) {
+void read_Sock(int sockfd, char* code) {
+	FILE* fp = fdopen(sockfd, "r");
 	size_t bufsize = 32, c;
 	char* msg = (char *)malloc(bufsize * sizeof(char));
-
+	char*quit = (char *)malloc(4*sizeof(char));
+	char*write_quit = (char *)malloc(6*sizeof(char));
+	strcpy(quit,"quit");
+	sprintf(write_quit, "%s\r\n", quit);
 	do {
 
 		msg = fgets(msg, 5, fp);
@@ -23,6 +27,7 @@ void read_Sock(FILE* fp, char* code) {
 	printf("HERE\n");
 	printf("%s\n",msg);
 	if(strcmp(msg, code) != 0) {
+		write(sockfd, write_quit, strlen(quit));
 		fprintf(stderr,"usage: Error\n");
 		exit(1);	
 	}
@@ -174,8 +179,8 @@ int main(int argc, char** argv) {
 
 
 	tcflush(sockfd, TCIOFLUSH);
-	FILE* fp = fdopen(sockfd, "r");
-	read_Sock(fp, "220 ");		
+
+	read_Sock(sockfd, "220 ");		
 
 
 	if ((nBytes = write(sockfd, write_user, strlen(write_user))) <= 0) {
@@ -184,7 +189,7 @@ int main(int argc, char** argv) {
 	}
 	printf("Bytes send: %d\nInfo: %s\n", nBytes, write_user);
 
-	read_Sock(fp, "530 ");		
+	read_Sock(sockfd, "331 ");		
 
 
 	if ((nBytes = write(sockfd, write_pass, strlen(write_pass))) != strlen(write_pass)) {
@@ -192,7 +197,7 @@ int main(int argc, char** argv) {
 		exit(1);	
 	}
 
-	read_Sock(fp, "230 ");	
+	read_Sock(sockfd, "230 ");	
 	
 	printf("HERE");
 
