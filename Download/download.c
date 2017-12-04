@@ -11,9 +11,13 @@
 #include <string.h>
 #include <termios.h>
 
+FILE* fp;
+
+
 void read_Sock(int sockfd, char* code) {
-	FILE* fp = fdopen(sockfd, "r");
-	size_t bufsize = 32, c;
+
+	size_t bufsize = 32;
+	size_t c;
 	char* msg = (char *)malloc(bufsize * sizeof(char));
 	char*quit = (char *)malloc(4*sizeof(char));
 	char*write_quit = (char *)malloc(6*sizeof(char));
@@ -145,14 +149,13 @@ int main(int argc, char** argv) {
     
 	/*open an TCP socket*/
 	if ((sockfd = socket(AF_INET,SOCK_STREAM,0)) < 0) {
-    		perror("socket()");
-        	exit(0);
-    	}
+		perror("socket()");
+    	exit(0);
+	}
+
 	/*connect to the server*/
-    	if(connect(sockfd, 
-	           (struct sockaddr *)&server_addr, 
-		   sizeof(server_addr)) < 0){
-        	perror("connect()");
+	if(connect(sockfd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0){
+    	perror("connect()");
 		exit(0);
 	}
     	/*send a string to the server*/
@@ -165,8 +168,8 @@ int main(int argc, char** argv) {
 	}
 
 	printf("%s\n",user);
-	char* write_user = malloc(strlen(user) + 1);
-	char* write_pass = malloc(strlen(pass) + 1);
+	char* write_user = malloc(strlen(user) + 2);
+	char* write_pass = malloc(strlen(pass) + 2);
 	printf("---------------\n");
 	sprintf(write_user, "%s\r\n", user);
 	sprintf(write_pass, "%s\r\n", pass);
@@ -174,11 +177,16 @@ int main(int argc, char** argv) {
 	write_pass[strlen(write_pass)] = '\0';	
 
 
+	printf("------%s-----", write_user);
+
+	
 
 	int nBytes = 0;
 
 
 	tcflush(sockfd, TCIOFLUSH);
+
+	fp = fdopen(sockfd, "r");
 
 	read_Sock(sockfd, "220 ");		
 
@@ -188,6 +196,7 @@ int main(int argc, char** argv) {
 		exit(1);	
 	}
 	printf("Bytes send: %d\nInfo: %s\n", nBytes, write_user);
+
 
 	read_Sock(sockfd, "331 ");		
 
