@@ -1,18 +1,27 @@
 #include "ftp.h"
 
-int read_Sock(ftp* ftp, char* str) {
-	FILE* fp = fdopen(ftp->control_socket_fd, "r");
-	size_t bufsize = 32, c;
+char* read_Sock(FILE* fp, char* code) {
+		printf("241354367653\n");
+
+	printf("FP: %d\n",fp);
+	size_t bufsize = 52, c;
 	char* msg = (char *)malloc(bufsize * sizeof(char));
 
-	do {
+	char* msgTotal = (char *)malloc(bufsize * sizeof(char));
 
+	do {
+		printf("vhjgvhvhj\n");
 		msg = fgets(msg, 5, fp);
 		printf("%s\n",msg);
 	} while (!('1' <= msg[0] && msg[0] <= '5') || msg[3] != ' ');
-
-	free(msg);
-	return 0;
+	if(strcmp(msg, code) != 0) {
+		fprintf(stderr,"usage: Wrong Code\n");
+		exit(1);
+	}
+	getline(&msgTotal,&bufsize,fp);
+	strcat(msg,msgTotal);
+	free(msgTotal);
+	return msg;
 }
 
 int connect_Sock(char* ip, int port) {
@@ -51,11 +60,13 @@ void connect_ftp(ftp* ftp, char* ip, int port) {
 	ftp->control_socket_fd = sockfd;
 	ftp->data_socket_fd = 0;
 	char rd[1024];
-	if(read_Sock(ftp,rd)) {
-		fprintf(stderr,"usage: Error connecting socket\n");
-		exit(1);
+	FILE* fp = fdopen(ftp->control_socket_fd, "r");
+
+	read_Sock(fp, "220 ");
+
+
 		
-	} 
+	
 }
 
 void write_Sock(ftp* ftp, char* str) {
