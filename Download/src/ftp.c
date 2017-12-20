@@ -1,18 +1,16 @@
 #include "ftp.h"
 
 char* read_Sock(FILE* fp, char* code) {
-		printf("241354367653\n");
 
-	printf("FP: %d\n",fp);
+
+
 	size_t bufsize = 52, c;
 	char* msg = (char *)malloc(bufsize * sizeof(char));
-
 	char* msgTotal = (char *)malloc(bufsize * sizeof(char));
 
 	do {
-		printf("vhjgvhvhj\n");
 		msg = fgets(msg, 5, fp);
-		printf("%s\n",msg);
+
 	} while (!('1' <= msg[0] && msg[0] <= '5') || msg[3] != ' ');
 	if(strcmp(msg, code) != 0) {
 		fprintf(stderr,"usage: Wrong Code\n");
@@ -20,7 +18,7 @@ char* read_Sock(FILE* fp, char* code) {
 	}
 	getline(&msgTotal,&bufsize,fp);
 	strcat(msg,msgTotal);
-	free(msgTotal);
+
 	return msg;
 }
 
@@ -75,5 +73,5 @@ void write_Sock(ftp* ftp, char* str) {
 		fprintf(stderr,"usage: Number of Bytes Written wrong %d\n",nBytes);
 		exit(1);	
 	}
-	printf("Bytes send: %d\nInfo: %s\n", nBytes, str);
+	printf("%s\n", str);
 }

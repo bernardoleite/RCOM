@@ -153,15 +153,16 @@ memcpy(path, url_aux_3[0], strlen(url_aux_3[0]));
 
 	FILE* fp = fdopen(ftp.control_socket_fd, "r");
 	write_Sock(&ftp,write_user);
-
-	read_Sock(fp, "331 ");		
-
+	char* read_user = malloc(52);
+	read_user = read_Sock(fp, "331 ");		
+	printf("%s\n",read_user);
 
 
 	write_Sock(&ftp,write_pass);
+	char* read_pass = malloc(52);
+	read_pass = read_Sock(fp, "230 ");	
+	printf("%s\n",read_pass);
 
-	read_Sock(fp, "230 ");	
-	
 	char* write_pasv = malloc(6);
 	sprintf(write_pasv, "PASV\r\n");
 	write_Sock(&ftp,write_pasv);
@@ -191,7 +192,7 @@ memcpy(path, url_aux_3[0], strlen(url_aux_3[0]));
 
 	// calculating new port
 	int portResult = port1 * 256 + port2;
-	printf("%d",portResult);
+
 	printf("IP: %s\n", read_pasv);
 	printf("PORT: %d\n", portResult);
 
@@ -208,8 +209,10 @@ memcpy(path, url_aux_3[0], strlen(url_aux_3[0]));
 	char* write_retr = malloc(6 + strlen(path));
 	sprintf(write_retr, "RETR /%s\r\n", path);
 	write_Sock(&ftp,write_retr);
-	printf("HERE\n");
-	read_Sock(fp, "150 ");
+	char* read_retr = malloc(52);
+	read_retr = read_Sock(fp, "150 ");
+	printf("%s\n",read_retr);
+
 	char* element = (char*) malloc(strlen(url_aux_3[0]));
 	int startPath = 1;
 	while (strchr(url_aux_3[0], '/')) {
@@ -255,11 +258,16 @@ close(ftp.data_socket_fd);
 
 
 	char disc[1024];
+	char* read_aux = malloc(52);
+	read_aux = read_Sock(fp, "226 ");
+	printf("%s\n",read_aux);
 
-	read_Sock(fp, "226 ");
 	sprintf(disc, "QUIT\r\n");
 	write_Sock(&ftp,disc);
-	read_Sock(fp, "221 ");
+	char* read_quit = malloc(52);
+	read_quit = read_Sock(fp, "221 ");
+	printf("%s\n",read_quit);
+
 	if (ftp.control_socket_fd)
 close(ftp.control_socket_fd);
 //ATE AQUI
